@@ -1,6 +1,6 @@
 # Sea Chart Route
 
-**▶ Live app: <https://charting-ochre.vercel.app/>**
+**▶ Live app: <https://osrs-charting.vercel.app/>**
 
 An interactive route planner for Old School RuneScape **Sailing** sea-charting,
 drawn on the live wiki map. Pick a start, filter by task type / ocean / boat
