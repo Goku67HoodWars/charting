@@ -62,6 +62,8 @@ body{display:flex; flex-direction:column}
 .tour-btns button{font:inherit; font-size:12.5px; padding:5px 11px; border-radius:6px; border:1px solid var(--rule); background:var(--field); color:var(--fg); cursor:pointer}
 .tour-btns .next{background:var(--accent); border-color:var(--accent); color:#fff}
 .tour-skip{background:none; border:none; color:var(--muted); font:inherit; font-size:12px; text-decoration:underline; cursor:pointer; padding:4px}
+.tour-gate{margin:0 0 12px!important; font-size:12.5px; color:var(--accent); font-weight:600}
+.tour-pop .muted{color:var(--muted); font-weight:400}
 .taskicon{position:relative; background:#fffaf0; border:2px solid #000; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center}
 .taskicon.done{background:#3aa655; border-color:#1e7a3a !important; opacity:.5}
 .taskicon.done img{filter:grayscale(0.5)}
@@ -95,7 +97,7 @@ body{display:flex; flex-direction:column}
       <span class="grp-label">Sailing</span>
       <input type="number" id="lvl" min="1" max="99" value="45">
     </div>
-    <div class="grp">
+    <div class="grp" id="syncGroup">
       <span class="grp-label">WikiSync</span>
       <input type="text" id="wsUser" placeholder="username" value="Beebeelex">
       <button id="wsLookup" class="btn-primary" type="button">Look up</button>
@@ -643,11 +645,13 @@ async function fetchSync(u){
   return null;
 }
 async function doLookup(){
-  const u = wsUser.value.trim(); if(!u) return;
+  const u = wsUser.value.trim();
+  if(!u){ wsStatus.textContent = 'Enter a name first.'; return; }
   wsStatus.textContent = `Looking up ${u}…`;
   const j = await fetchSync(u);
-  if(j && (Array.isArray(j)?j:j.sea_charting)){ applySync(j, u); return; }
-  wsStatus.innerHTML = `No data for <b>${u}</b>. The account must have uploaded via the RuneLite <b>WikiSync</b> plugin first (open RuneLite while logged in with WikiSync enabled).`;
+  if(j && (Array.isArray(j)?j:j.sea_charting)) applySync(j, u);
+  else wsStatus.innerHTML = `No data for <b>${u}</b>. The account must have uploaded via the RuneLite <b>WikiSync</b> plugin first (open RuneLite while logged in with WikiSync enabled).`;
+  if(typeof tourAwaitLookup!=='undefined' && tourAwaitLookup){ tourAwaitLookup=false; advanceTour(); }  // tour gate: proceed once they've looked up
 }
 document.getElementById('wsLookup').addEventListener('click', doLookup);
 wsUser.addEventListener('keydown', e => { if(e.key==='Enter') doLookup(); });
@@ -658,7 +662,7 @@ render();
 
 // ---- guided tour: spotlights real controls one at a time, with Skip ----
 const TOUR = [
-  {sel:'#wsUser', title:'1 · Load your progress', html:'Type your RuneScape name here and press <em>Look&nbsp;up</em>. It pulls your completed charts and Sailing level from WikiSync.', pad:6},
+  {sel:'#syncGroup', title:'1 · Load your progress', html:'Type your RuneScape name here and press <em>Look&nbsp;up</em>. It pulls your completed charts and Sailing level from WikiSync. <span class="muted">(Your account must have run the RuneLite WikiSync plugin.)</span>', pad:6, gate:'lookup'},
   {sel:'#lvl', title:'2 · Your Sailing level', html:'The route only shows tasks you can actually do at this level. It auto-fills when you sync.'},
   {sel:'#typefilter', title:'3 · Show / hide task types', html:'Click a chip to toggle that type on or off — e.g. hide weather or diving you’re not doing.'},
   {sel:'#oceansPanel', title:'4 · Pick oceans', html:'Toggle a whole ocean on or off to focus the route on the areas you’re working.', side:'left'},
@@ -667,10 +671,11 @@ const TOUR = [
   {sel:'#map', title:'7 · Mark tasks done', html:'Click any numbered task on the map to mark it done (it turns green) — click again to undo. Scroll to zoom, drag to pan.', center:true},
   {sel:'#helpBtn', title:'That’s it!', html:'Follow the numbered route — <b style="color:#12d0e0">cyan</b> is a duck drift, <b style="color:#9b5cf6">violet</b> is weather. Reopen this tour anytime with <em>Guide</em>.'},
 ];
-let tourHole=null, tourPop=null, tourIdx=0;
+let tourHole=null, tourPop=null, tourIdx=0, tourAwaitLookup=false;
 function endTour(){
   if(tourHole){ tourHole.remove(); tourHole=null; }
   if(tourPop){ tourPop.remove(); tourPop=null; }
+  tourAwaitLookup=false;
   window.removeEventListener('resize', positionTour);
   try{ localStorage.setItem('seen-tour-v1','1'); }catch(_){}
 }
@@ -699,18 +704,22 @@ function positionTour(){
   y=Math.max(10, Math.min(y, innerHeight-ph-10));
   tourPop.style.left=x+'px'; tourPop.style.top=y+'px';
 }
+function advanceTour(){ if(!tourPop) return; if(tourIdx>=TOUR.length-1){ endTour(); } else { tourIdx++; renderTourStep(); positionTour(); } }
 function renderTourStep(){
-  const step=TOUR[tourIdx], last=tourIdx===TOUR.length-1;
+  const step=TOUR[tourIdx], last=tourIdx===TOUR.length-1, gated=step.gate==='lookup';
+  tourAwaitLookup = gated;   // this step only advances once they actually look up
   tourPop.innerHTML =
     `<h3>${step.title}</h3><p>${step.html}</p>`+
+    (gated?`<p class="tour-gate">↑ Enter your name and press <b>Look up</b> to continue.</p>`:``)+
     `<div class="tour-row"><span class="tour-step">${tourIdx+1} / ${TOUR.length}</span>`+
     `<div class="tour-btns">`+
-      (tourIdx>0?`<button class="back">Back</button>`:`<button class="tour-skip">Skip</button>`)+
-      `<button class="next">${last?'Done':'Next'}</button>`+
+      `<button class="tour-skip">Skip tour</button>`+
+      (tourIdx>0?`<button class="back">Back</button>`:``)+
+      (gated?``:`<button class="next">${last?'Done':'Next'}</button>`)+
     `</div></div>`;
-  tourPop.querySelector('.next').onclick=()=>{ if(last) endTour(); else { tourIdx++; renderTourStep(); positionTour(); } };
+  const next=tourPop.querySelector('.next'); if(next) next.onclick=advanceTour;
   const back=tourPop.querySelector('.back'); if(back) back.onclick=()=>{ tourIdx--; renderTourStep(); positionTour(); };
-  const skip=tourPop.querySelector('.tour-skip'); if(skip) skip.onclick=endTour;
+  tourPop.querySelector('.tour-skip').onclick=endTour;
   positionTour();
 }
 function startTour(){
