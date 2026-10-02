@@ -25,8 +25,12 @@ body{display:flex; flex-direction:column}
 .topbar-head{display:flex; justify-content:space-between; align-items:flex-start; gap:18px; flex-wrap:wrap}
 .titlewrap h1{font-family:"IM Fell English SC", ui-serif, Georgia, serif; font-weight:400; letter-spacing:.03em; font-size:24px; margin:0; line-height:1}
 .titlewrap .sub{color:var(--muted); font-size:12px; margin-top:3px}
-.summary{color:var(--muted); font-size:12.5px; text-align:right; font-variant-numeric:tabular-nums; line-height:1.55}
-.summary b{color:var(--fg); font-weight:700}
+.summary{display:flex; flex-wrap:wrap; align-items:baseline; justify-content:flex-end; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums}
+.summary .stat{padding:0 11px; white-space:nowrap}
+.summary .stat:first-child{padding-left:0}
+.summary .stat:last-child{padding-right:0}
+.summary .stat + .stat{border-left:1px solid var(--rule)}
+.summary b{color:var(--fg); font-weight:700; font-size:15px; margin-right:4px}
 .toolbar{display:flex; align-items:center; flex-wrap:wrap; row-gap:8px; margin-top:12px}
 .grp{display:flex; align-items:center; gap:8px; padding:2px 14px}
 .grp:first-child{padding-left:0}
@@ -107,7 +111,7 @@ body{display:flex; flex-direction:column}
   .topbar.menu-open #menuBtn{background:var(--accent); border-color:var(--accent); color:#fff}
   /* everything but the slim title row is hidden until the menu is opened */
   .summary, .toolbar, .typebar{display:none; width:100%}
-  .summary{text-align:left; font-size:11.5px; line-height:1.45; order:3; margin-top:6px}
+  .summary{justify-content:flex-start; font-size:11.5px; order:3; margin-top:6px}
   .toolbar{order:4; row-gap:9px; margin-top:8px}
   .typebar{order:5}
   .topbar.menu-open .summary{display:block}
@@ -510,7 +514,6 @@ function buildRoute(pts){
   }
   return { legs, order, isolated };
 }
-function routeLen(legs){ let d=0; for(const l of legs) d+=Math.hypot(l.to[0]-l.from[0], l.to[1]-l.from[1]); return d; }
 // parallel-offset a path (game coords) by `dist` tiles, tapering to 0 at both ends so the line
 // still touches its markers exactly while the middle is offset for separation. Line and arrows
 // share this geometry; offset side is set by the sign of dist.
@@ -622,12 +625,14 @@ function render(){
   }
 
   // xp estimate using each ocean's real avg xp/task (from wiki totals). Within-ocean it varies by task level, so this is approximate.
-  let estXp = 0;
-  for(const p of visible) estXp += (p[7]>=0 ? oceans[p[7]][6] : 230);
-  estXp = Math.round(estXp);
-  summary.innerHTML = `<b>${done.size}</b> done · <b>${visible.length}</b> to go`
-    + `<br>~<b>${estXp.toLocaleString()}</b> Sailing xp available`
-    + (togPath.checked ? `<br><span style="opacity:.8">≈ ${Math.round(routeLen(legs)).toLocaleString()} tiles of sailing</span>` : '');
+  // progress for the current view (reacts to type / ocean / unlock / level toggles)
+  const doneInView = shown.length - visible.length;   // completed tasks that still match the filters
+  const onRoute = order.size;                         // numbered, water-reachable stops
+  const toGo = visible.length;                         // everything still to chart in view
+  summary.innerHTML =
+    `<span class="stat"><b>${doneInView}</b> done</span>`
+    + `<span class="stat"><b>${onRoute}</b> on route</span>`
+    + `<span class="stat"><b>${toGo}</b> to go</span>`;
   renderOceanChips(L_);
 }
 function getCSS(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#b5502f'; }
