@@ -71,8 +71,12 @@ body{display:flex; flex-direction:column}
 .seqnum{position:absolute; top:-7px; right:-7px; min-width:15px; height:15px; padding:0 2px; box-sizing:border-box; background:#1b1b1b; color:#fff; border:1.5px solid #fff; border-radius:8px; font:700 10px/12px ui-sans-serif,system-ui,sans-serif; text-align:center; font-variant-numeric:tabular-nums}
 .seqnum.iso{background:#8a6d3b; border-color:#fff}
 .leaflet-container{font-family:inherit}
-.unlockpanel{background:var(--panel); border:1px solid var(--rule); border-radius:4px; padding:8px 10px; box-shadow:0 1px 4px rgba(0,0,0,.3); font-size:13px; min-width:150px}
-.unlockpanel .uptitle{font-weight:700; letter-spacing:.03em; margin-bottom:5px; text-transform:uppercase; font-size:11px; color:var(--muted)}
+.unlockpanel{background:var(--panel); border:1px solid var(--rule); border-radius:4px; padding:8px 10px; box-shadow:0 1px 4px rgba(0,0,0,.3); font-size:13px; min-width:150px; max-width:72vw}
+.unlockpanel .uptitle{font-weight:700; letter-spacing:.03em; margin-bottom:5px; text-transform:uppercase; font-size:11px; color:var(--muted); cursor:pointer; user-select:none}
+.unlockpanel .uptitle::after{content:'▾'; float:right; margin-left:8px; opacity:.7}
+.unlockpanel.collapsed .uptitle{margin-bottom:0}
+.unlockpanel.collapsed .uptitle::after{content:'▸'}
+.unlockpanel.collapsed > *:not(.uptitle){display:none}
 .unlockpanel label{display:flex; gap:6px; align-items:center; cursor:pointer; padding:2px 0}
 .unlockpanel .uphelp{font-weight:400; text-transform:none; letter-spacing:0; opacity:.7}
 .unlockpanel .ghelp{margin-left:auto; width:14px; height:14px; border:1px solid var(--rule); border-radius:50%; font-size:9px; line-height:12px; text-align:center; color:var(--muted); cursor:help}
@@ -81,6 +85,28 @@ body{display:flex; flex-direction:column}
 .ocrow .sw{width:10px; height:10px; border-radius:50%; flex:none}
 .ocrow .ocname{flex:1}
 .ocrow .occount{opacity:.7; font-size:12px}
+/* ---- mobile / narrow screens ---- */
+@media (max-width:640px){
+  .topbar{padding:8px 12px 0}
+  .topbar-head{flex-direction:column; align-items:stretch; gap:2px}
+  .titlewrap h1{font-size:19px}
+  .titlewrap .sub{font-size:11px}
+  .summary{text-align:left; font-size:11.5px; line-height:1.45}
+  .toolbar{row-gap:7px}
+  .grp{padding:0; gap:7px; flex-wrap:wrap}
+  .grp + .grp{border-left:none; padding-left:0}
+  .grp-label{font-size:9.5px}
+  .topbar input[type=text]{width:130px}
+  .topbar button{padding:6px 12px}  /* easier tap targets */
+  .chk{font-size:13px}
+  .typebar{gap:6px; padding:8px 0; margin-top:8px}
+  .typenotes{margin-left:0; width:100%; flex-wrap:wrap; gap:6px 12px; margin-top:2px}
+  .typechip{padding:5px 11px}
+  .unlockpanel{min-width:0; max-width:56vw; font-size:12px; padding:6px 8px}
+  .unlockpanel .ocrow, .unlockpanel label{padding:3px 0}  /* bigger tap rows */
+  .leaflet-top.leaflet-right{max-width:60vw}
+  .tour-pop{width:min(290px, calc(100vw - 20px))}
+}
 </style>
 </head>
 <body>
@@ -195,6 +221,7 @@ OCEANS_CTL.onAdd = function(){
   const d = L.DomUtil.create('div','unlockpanel');
   d.id = 'oceansPanel';
   oceansBox = d;
+  if(innerWidth<=640) d.classList.add('collapsed');   // start collapsed on phones
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   return d;
 };
@@ -215,6 +242,8 @@ UNLOCK_CTL.onAdd = function(){
   d.innerHTML = '<div class="uptitle">Unlocked <span class="uphelp">(hover for info)</span></div>' + Object.keys(GEAR).map(g =>
     `<label title="${(GEAR_DESC[g]||'').replace(/"/g,'&quot;')}"><input type="checkbox" class="gear" data-g="${g}"> ${g.replace('Requires raft','Raft')}<span class="ghelp">?</span></label>`
   ).join('');
+  if(innerWidth<=640) d.classList.add('collapsed');   // start collapsed on phones
+  d.querySelector('.uptitle').addEventListener('click', ()=> d.classList.toggle('collapsed'));
   L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
   return d;
 };
@@ -586,6 +615,7 @@ function renderOceanChips(L_){
     </label>`;
   }).join('');
   oceansBox.innerHTML = '<div class="uptitle">Oceans</div>' + rows;
+  oceansBox.querySelector('.uptitle').addEventListener('click', ()=> oceansBox.classList.toggle('collapsed'));
   oceansBox.querySelectorAll('input.ocean').forEach(cb => cb.addEventListener('change', () => {
     oceanOn[+cb.dataset.oi] = cb.checked; render();
   }));
