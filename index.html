@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Beebeelex Sea Chart Route</title>
+<title>Sea Chart Route — OSRS Sailing planner</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
@@ -34,6 +34,7 @@ body{display:flex; flex-direction:column}
 .grp-label{color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.06em; font-weight:700}
 .chk{display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; white-space:nowrap}
 .hint{color:var(--muted); font-size:12px; max-width:240px}
+.hint:empty{display:none}  /* no phantom line/gap before a status is set */
 .topbar input[type=number], .topbar input[type=text]{font:inherit; font-size:13px; padding:5px 8px; border:1px solid var(--rule); background:var(--field); color:var(--fg); border-radius:6px}
 .topbar input[type=number]{width:50px}
 .topbar input[type=text]{width:118px}
@@ -64,6 +65,16 @@ body{display:flex; flex-direction:column}
 .tour-skip{background:none; border:none; color:var(--muted); font:inherit; font-size:12px; text-decoration:underline; cursor:pointer; padding:4px}
 .tour-gate{margin:0 0 12px!important; font-size:12.5px; color:var(--accent); font-weight:600}
 .tour-pop .muted{color:var(--muted); font-weight:400}
+/* custom confirm dialog (replaces the OS confirm()) */
+.modal-back{position:fixed; inset:0; z-index:5000; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.45); padding:20px}
+.modal-card{background:var(--panel); color:var(--fg); border:1px solid var(--rule); border-radius:12px; box-shadow:0 12px 36px rgba(0,0,0,.5); padding:18px 20px; width:100%; max-width:340px; font-family:ui-sans-serif, system-ui, "Segoe UI", sans-serif}
+.modal-card h3{margin:0 0 6px; font-size:17px; font-family:"IM Fell English SC", ui-serif, Georgia, serif; font-weight:400}
+.modal-card p{margin:0 0 16px; font-size:13.5px; color:var(--muted); line-height:1.5}
+.modal-btns{display:flex; gap:10px; justify-content:flex-end}
+.modal-btns button{font:inherit; font-size:14px; padding:8px 16px; border-radius:7px; border:1px solid var(--rule); background:var(--field); color:var(--fg); cursor:pointer}
+.modal-btns button:hover{border-color:var(--accent)}
+.modal-btns .danger{background:var(--accent); border-color:var(--accent); color:#fff}
+.modal-btns .danger:hover{filter:brightness(1.08)}
 .taskicon{position:relative; background:#fffaf0; border:2px solid #000; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center}
 .taskicon.done{background:#3aa655; border-color:#1e7a3a !important; opacity:.5}
 .taskicon.done img{filter:grayscale(0.5)}
@@ -102,11 +113,21 @@ body{display:flex; flex-direction:column}
   .topbar.menu-open .summary{display:block}
   .topbar.menu-open .toolbar{display:flex}
   .topbar.menu-open .typebar{display:flex}
-  .grp{padding:0; gap:8px; flex-wrap:wrap}
+  .toolbar{column-gap:10px; align-items:flex-start}  /* keep inputs top-aligned when the status line grows the WikiSync group */
+  .grp{padding:0; gap:6px; align-items:center}
   .grp + .grp{border-left:none; padding-left:0}
   .grp-label{font-size:9.5px}
-  .topbar input[type=text]{width:150px}
-  .topbar input[type=number]{width:60px}
+  /* Sailing + WikiSync share the top row: drop the WikiSync label (the name
+     field + Look up button already say what it is) and park the status line
+     below so it never pushes the row to wrap. */
+  /* cap WikiSync at (row - Sailing) so it always sits beside Sailing on row 1:
+     the cap is its max main size, so a long status can't inflate its wrap-size
+     and bump it to its own row; the status just wraps below inside it. */
+  #syncGroup{flex:0 1 auto; min-width:0; max-width:calc(100% - 120px); flex-wrap:wrap}
+  #syncGroup .grp-label{display:none}
+  #wsStatus{flex-basis:100%; min-width:0; max-width:100%; margin-top:2px; overflow-wrap:anywhere}
+  .topbar input[type=text]{width:116px}
+  .topbar input[type=number]{width:44px}
   .topbar button{padding:7px 13px}       /* easier tap targets */
   .chk{font-size:14px}
   .typebar{gap:7px; padding:8px 0 0; margin-top:4px}
@@ -124,7 +145,7 @@ body{display:flex; flex-direction:column}
   <div class="topbar-head">
     <div class="titlewrap">
       <h1>Sea Chart Route</h1>
-      <div class="sub">Beebeelex · voyage to level 50</div>
+      <div class="sub">OSRS Sailing · charting planner</div>
     </div>
     <button id="menuBtn" type="button" aria-label="Menu">☰ Menu</button>
     <div class="summary" id="summary"></div>
@@ -604,9 +625,8 @@ function render(){
   let estXp = 0;
   for(const p of visible) estXp += (p[7]>=0 ? oceans[p[7]][6] : 230);
   estXp = Math.round(estXp);
-  const needed = 101333 - 66004;
-  summary.innerHTML = `<b>${done.size}</b> done · <b>${visible.length}</b> on route`
-    + `<br>~<b>${estXp.toLocaleString()}</b> xp shown · need <b>${needed.toLocaleString()}</b> for lvl 50`
+  summary.innerHTML = `<b>${done.size}</b> done · <b>${visible.length}</b> to go`
+    + `<br>~<b>${estXp.toLocaleString()}</b> Sailing xp available`
     + (togPath.checked ? `<br><span style="opacity:.8">≈ ${Math.round(routeLen(legs)).toLocaleString()} tiles of sailing</span>` : '');
   renderOceanChips(L_);
 }
@@ -646,7 +666,27 @@ document.querySelectorAll('.typechip').forEach(chip => chip.addEventListener('cl
 for(const el of [lvl, togPath, hideDone, ...document.querySelectorAll('.gear')]){
   el.addEventListener('input', render); el.addEventListener('change', render);
 }
-document.getElementById('clearDone').addEventListener('click', ()=>{ if(confirm('Clear all completed marks?')){ done.clear(); saveDone(); render(); } });
+function confirmBox(title, msg, okLabel){
+  return new Promise(resolve=>{
+    const back=document.createElement('div'); back.className='modal-back';
+    back.innerHTML=`<div class="modal-card" role="dialog" aria-modal="true"><h3></h3><p></p>`+
+      `<div class="modal-btns"><button class="cancel">Cancel</button><button class="danger"></button></div></div>`;
+    back.querySelector('h3').textContent=title; back.querySelector('p').textContent=msg;
+    back.querySelector('.danger').textContent=okLabel||'Confirm';
+    document.body.appendChild(back);
+    const close=v=>{ back.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const onKey=e=>{ if(e.key==='Escape') close(false); };
+    back.querySelector('.cancel').onclick=()=>close(false);
+    back.querySelector('.danger').onclick=()=>close(true);
+    back.addEventListener('click', e=>{ if(e.target===back) close(false); });
+    document.addEventListener('keydown', onKey);
+    back.querySelector('.danger').focus();
+  });
+}
+document.getElementById('clearDone').addEventListener('click', ()=>{
+  confirmBox('Reset completed?', 'This clears every task you’ve marked done. Your Sailing level and synced name stay.', 'Reset done')
+    .then(ok=>{ if(ok){ done.clear(); saveDone(); render(); } });
+});
 
 // pick any task as the route start; double-tap the button to reset to Port Sarim
 const setStartBtn = document.getElementById('setStart'), startLabel = document.getElementById('startLabel');
@@ -712,7 +752,7 @@ const TOUR = [
   {sel:'#map', title:'7 · Mark tasks done', html:'Click any numbered task on the map to mark it done (it turns green) — click again to undo. Scroll to zoom, drag to pan.', center:true},
   {sel:'#helpBtn', title:'That’s it!', html:'Follow the numbered route — <b style="color:#12d0e0">cyan</b> is a duck drift, <b style="color:#9b5cf6">violet</b> is weather. Reopen this tour anytime with <em>Guide</em>.'},
 ];
-let tourHole=null, tourPop=null, tourIdx=0, tourAwaitLookup=false;
+let tourHole=null, tourPop=null, tourIdx=0, tourAwaitLookup=false, tourReplay=false;
 function endTour(){
   if(tourHole){ tourHole.remove(); tourHole=null; }
   if(tourPop){ tourPop.remove(); tourPop=null; }
@@ -740,7 +780,9 @@ function positionTour(){
   const pw=tourPop.offsetWidth||290, ph=tourPop.offsetHeight||150, gap=14;
   let x, y;
   if(step.center || !el){ x=(innerWidth-pw)/2; y=(innerHeight-ph)/2; }
-  else if(step.side==='left'){ x=r.left-pw-gap; y=r.top; if(x<10) x=r.right+gap; }
+  else if(step.side==='left' && innerWidth>640){ x=r.left-pw-gap; y=r.top; if(x<10) x=r.right+gap; }
+  // phones have no room left of the top-right panels — drop the popover below the target so it never covers it
+  else if(step.side==='left'){ x=r.left; y=r.bottom+gap; if(y+ph>innerHeight-10) y=r.top-ph-gap; }
   else { x=r.left; y=r.bottom+gap; if(y+ph>innerHeight-10) y=r.top-ph-gap; }
   x=Math.max(10, Math.min(x, innerWidth-pw-10));
   y=Math.max(10, Math.min(y, innerHeight-ph-10));
@@ -748,10 +790,14 @@ function positionTour(){
 }
 function advanceTour(){ if(!tourPop) return; if(tourIdx>=TOUR.length-1){ endTour(); } else { tourIdx++; renderTourStep(); positionTour(); } }
 function renderTourStep(){
-  const step=TOUR[tourIdx], last=tourIdx===TOUR.length-1, gated=step.gate==='lookup';
-  tourAwaitLookup = gated;   // this step only advances once they actually look up
-  // on phones the controls live in a drawer — open it for header steps so the target is visible
-  if(innerWidth<=640) document.querySelector('.topbar').classList.toggle('menu-open', step.sel!=='#map');
+  const step=TOUR[tourIdx], last=tourIdx===TOUR.length-1, gated=step.gate==='lookup' && !tourReplay;
+  tourAwaitLookup = gated;   // first-run only: this step advances once they actually look up
+  // on phones the drawer holds the header controls — open it for those steps, but
+  // keep it closed for on-map targets (#map and the oceans/unlock panels) so the map shows.
+  if(innerWidth<=640){
+    const onMap = step.sel==='#map' || step.sel==='#oceansPanel' || step.sel==='#unlockPanel';
+    document.querySelector('.topbar').classList.toggle('menu-open', !onMap);
+  }
   tourPop.innerHTML =
     `<h3>${step.title}</h3><p>${step.html}</p>`+
     (gated?`<p class="tour-gate">↑ Enter your name and press <b>Look up</b> to continue.</p>`:``)+
@@ -766,8 +812,9 @@ function renderTourStep(){
   tourPop.querySelector('.tour-skip').onclick=endTour;
   positionTour();
 }
-function startTour(){
+function startTour(replay){
   endTour();
+  tourReplay = !!replay;   // replays (Guide button) aren't gated, so you can Next through all steps
   tourIdx=0;
   tourHole=document.createElement('div'); tourHole.className='tour-hole';
   tourPop=document.createElement('div'); tourPop.className='tour-pop';
@@ -775,11 +822,11 @@ function startTour(){
   window.addEventListener('resize', positionTour);
   renderTourStep();
 }
-document.getElementById('helpBtn').addEventListener('click', startTour);
+document.getElementById('helpBtn').addEventListener('click', ()=>startTour(true));   // replay: not gated
 document.getElementById('menuBtn').addEventListener('click', ()=> document.querySelector('.topbar').classList.toggle('menu-open'));
 document.addEventListener('keydown', e => { if(e.key==='Escape' && tourPop) endTour(); });
 let seenTour=false; try{ seenTour=!!localStorage.getItem('seen-tour-v1'); }catch(_){}
-if(!seenTour) setTimeout(startTour, 500);
+if(!seenTour) setTimeout(()=>startTour(false), 500);   // first run: gate the lookup step
 </script>
 </body>
 </html>
