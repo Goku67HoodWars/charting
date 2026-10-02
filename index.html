@@ -497,9 +497,11 @@ function buildRoute(pts){
     let first = true;
     for(let idx=0; idx<ord.length; idx++){
       const t=ord[idx]; if(absorbed.has(t[0])) continue;
+      order.set(t[0], ++seq);         // stable number for every task (done included) — the line below skips the done ones
+      if(done.has(t[0])) continue;    // completed: keep its number slot, draw no leg, leave the cursor put
       const oi=t[7], e=entry(t);
       legs.push({kind: first?'hop':'travel', ocean:oi, from:[cx,cy], to:e});
-      first=false; order.set(t[0], ++seq);
+      first=false;
       if(isDrift(t)){
         const s=e, en=t[8], dk=driftKind(t);
         // pull not-yet-visited non-drift tasks lying along the drift corridor, ordered start→end
@@ -511,7 +513,7 @@ function buildRoute(pts){
         }
         cor.sort((a,b)=>a.t-b.t);
         let px=s[0], py=s[1];
-        for(const c of cor){ legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe}); px=c.qe[0]; py=c.qe[1]; order.set(c.q[0], ++seq); }
+        for(const c of cor){ order.set(c.q[0], ++seq); if(done.has(c.q[0])) continue; legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe}); px=c.qe[0]; py=c.qe[1]; }
         legs.push({kind:dk, ocean:oi, from:[px,py], to:en});
         cx=en[0]; cy=en[1];
       } else {
@@ -557,14 +559,18 @@ function render(){
   const L_ = Math.max(1, Math.min(99, +lvl.value || 1));
   // `shown` = everything drawn on the map; `visible` = the routable subset (completed tasks are
   // drawn green/faded but never routed). "Hide done" fully removes completed from the map.
-  const shown = data.filter(t =>
+  // `routable` = everything matching the filters, IGNORING done. It's the stable basis for the
+  // route order, so each task keeps its number — completing one (or toggling Hide done) never
+  // renumbers the rest. Only the start or the filters (level / type / ocean / unlocks) reshuffle it.
+  const routable = data.filter(t =>
     t[5] <= L_
     && typeOn[t[2]]
     && !gearBlocked(t[0])
     && (t[7] < 0 || oceanOn[t[7]])
-    && !(hideDone.checked && done.has(t[0]))
   );
-  visible = shown.filter(t => !done.has(t[0]));
+  // `shown` = what's actually drawn (Hide done removes completed); `visible` = the not-done subset.
+  const shown = hideDone.checked ? routable.filter(t => !done.has(t[0])) : routable;
+  visible = routable.filter(t => !done.has(t[0]));
   routeLayer.clearLayers();
   markerLayer.clearLayers();
   duckLayer.clearLayers();
@@ -572,7 +578,7 @@ function render(){
   // single connected route over not-done tasks; duck legs (start→drift-end) are threaded in blue
   let legs = [], order = new Map(), isolated = new Set();
   if(togPath.checked){
-    const r = buildRoute(visible); legs = r.legs; order = r.order; isolated = r.isolated;
+    const r = buildRoute(routable); legs = r.legs; order = r.order; isolated = r.isolated;
     for(const l of legs){
       const isDrift = l.kind === 'duck' || l.kind === 'weather';
       const driftCol = l.kind === 'weather' ? '#9b5cf6' : '#12d0e0'; // weather=violet, duck=cyan
@@ -634,9 +640,9 @@ function render(){
 
   // xp estimate using each ocean's real avg xp/task (from wiki totals). Within-ocean it varies by task level, so this is approximate.
   // progress for the current view (reacts to type / ocean / unlock / level toggles)
-  const doneInView = shown.length - visible.length;   // completed tasks that still match the filters
-  const onRoute = order.size;                         // numbered, water-reachable stops
-  const toGo = visible.length;                         // everything still to chart in view
+  const doneInView = routable.length - visible.length;        // completed tasks that match the filters
+  const onRoute = visible.filter(t => order.has(t[0])).length; // not-done tasks with a numbered slot
+  const toGo = visible.length;                                 // everything still to chart in view
   summary.innerHTML =
     `<span class="stat"><b>${doneInView}</b> done</span>`
     + `<span class="stat"><b>${onRoute}</b> on route</span>`
