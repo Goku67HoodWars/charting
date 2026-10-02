@@ -85,25 +85,35 @@ body{display:flex; flex-direction:column}
 .ocrow .sw{width:10px; height:10px; border-radius:50%; flex:none}
 .ocrow .ocname{flex:1}
 .ocrow .occount{opacity:.7; font-size:12px}
-/* ---- mobile / narrow screens ---- */
+#menuBtn{display:none}
+/* ---- mobile / narrow screens: slim top bar + tap-to-open controls drawer ---- */
 @media (max-width:640px){
-  .topbar{padding:8px 12px 0}
-  .topbar-head{flex-direction:column; align-items:stretch; gap:2px}
-  .titlewrap h1{font-size:19px}
-  .titlewrap .sub{font-size:11px}
-  .summary{text-align:left; font-size:11.5px; line-height:1.45}
-  .toolbar{row-gap:7px}
-  .grp{padding:0; gap:7px; flex-wrap:wrap}
+  .topbar{padding:7px 12px}
+  .topbar-head{flex-wrap:wrap; align-items:center; gap:4px}
+  .titlewrap h1{font-size:18px}
+  .titlewrap .sub{font-size:10.5px}
+  #menuBtn{display:inline-flex; margin-left:auto; align-items:center; gap:5px; font-size:13px; font-weight:600; padding:7px 13px; border:1px solid var(--rule); background:var(--field); color:var(--fg); border-radius:7px; cursor:pointer}
+  .topbar.menu-open #menuBtn{background:var(--accent); border-color:var(--accent); color:#fff}
+  /* everything but the slim title row is hidden until the menu is opened */
+  .summary, .toolbar, .typebar{display:none; width:100%}
+  .summary{text-align:left; font-size:11.5px; line-height:1.45; order:3; margin-top:6px}
+  .toolbar{order:4; row-gap:9px; margin-top:8px}
+  .typebar{order:5}
+  .topbar.menu-open .summary{display:block}
+  .topbar.menu-open .toolbar{display:flex}
+  .topbar.menu-open .typebar{display:flex}
+  .grp{padding:0; gap:8px; flex-wrap:wrap}
   .grp + .grp{border-left:none; padding-left:0}
   .grp-label{font-size:9.5px}
-  .topbar input[type=text]{width:130px}
-  .topbar button{padding:6px 12px}  /* easier tap targets */
-  .chk{font-size:13px}
-  .typebar{gap:6px; padding:8px 0; margin-top:8px}
+  .topbar input[type=text]{width:150px}
+  .topbar input[type=number]{width:60px}
+  .topbar button{padding:7px 13px}       /* easier tap targets */
+  .chk{font-size:14px}
+  .typebar{gap:7px; padding:8px 0 0; margin-top:4px}
   .typenotes{margin-left:0; width:100%; flex-wrap:wrap; gap:6px 12px; margin-top:2px}
-  .typechip{padding:5px 11px}
+  .typechip{padding:6px 12px}
   .unlockpanel{min-width:0; max-width:56vw; font-size:12px; padding:6px 8px}
-  .unlockpanel .ocrow, .unlockpanel label{padding:3px 0}  /* bigger tap rows */
+  .unlockpanel .ocrow, .unlockpanel label{padding:3px 0}
   .leaflet-top.leaflet-right{max-width:60vw}
   .tour-pop{width:min(290px, calc(100vw - 20px))}
 }
@@ -116,6 +126,7 @@ body{display:flex; flex-direction:column}
       <h1>Sea Chart Route</h1>
       <div class="sub">Beebeelex · voyage to level 50</div>
     </div>
+    <button id="menuBtn" type="button" aria-label="Menu">☰ Menu</button>
     <div class="summary" id="summary"></div>
   </div>
   <div class="toolbar">
@@ -706,6 +717,7 @@ function endTour(){
   if(tourHole){ tourHole.remove(); tourHole=null; }
   if(tourPop){ tourPop.remove(); tourPop=null; }
   tourAwaitLookup=false;
+  if(innerWidth<=640) document.querySelector('.topbar').classList.remove('menu-open');  // show the big map after the tour
   window.removeEventListener('resize', positionTour);
   try{ localStorage.setItem('seen-tour-v1','1'); }catch(_){}
 }
@@ -738,6 +750,8 @@ function advanceTour(){ if(!tourPop) return; if(tourIdx>=TOUR.length-1){ endTour
 function renderTourStep(){
   const step=TOUR[tourIdx], last=tourIdx===TOUR.length-1, gated=step.gate==='lookup';
   tourAwaitLookup = gated;   // this step only advances once they actually look up
+  // on phones the controls live in a drawer — open it for header steps so the target is visible
+  if(innerWidth<=640) document.querySelector('.topbar').classList.toggle('menu-open', step.sel!=='#map');
   tourPop.innerHTML =
     `<h3>${step.title}</h3><p>${step.html}</p>`+
     (gated?`<p class="tour-gate">↑ Enter your name and press <b>Look up</b> to continue.</p>`:``)+
@@ -762,6 +776,7 @@ function startTour(){
   renderTourStep();
 }
 document.getElementById('helpBtn').addEventListener('click', startTour);
+document.getElementById('menuBtn').addEventListener('click', ()=> document.querySelector('.topbar').classList.toggle('menu-open'));
 document.addEventListener('keydown', e => { if(e.key==='Escape' && tourPop) endTour(); });
 let seenTour=false; try{ seenTour=!!localStorage.getItem('seen-tour-v1'); }catch(_){}
 if(!seenTour) setTimeout(startTour, 500);
