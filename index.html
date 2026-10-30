@@ -246,7 +246,7 @@ const WORLD = L.latLngBounds(
 const map = L.map('map', { crs: L.CRS.Simple, minZoom: -3, maxZoom: 7, zoomControl: true, attributionControl: false, maxBounds: WORLD.pad(0.08), maxBoundsViscosity: 0.7 });
 // Current wiki tile set (has Varlamore, Sailing, etc). Same game-coord projection as before.
 // To refresh later: bump TILE_VERSION to the newest from a wiki map page's tile URL.
-const TILE_VERSION = '2026-08-12_a';
+const TILE_VERSION = '2026-10-20_a';
 const RSTiles = L.TileLayer.extend({
   getTileUrl: function(c){ return `https://maps.runescape.wiki/osrs/versions/${TILE_VERSION}/tiles/rendered/0/${c.z}/0_${c.x}_${-c.y - 1}.png`; }
 });
