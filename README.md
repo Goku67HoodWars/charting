@@ -42,8 +42,17 @@ Every `git push` redeploys automatically.
 > A player's data only exists in WikiSync if they've opened RuneLite while
 > logged in with the **WikiSync** plugin enabled.
 
+## Staying in sync with the wiki map
+
+The wiki retires its map tile version every few months. The page fetches the
+current version from `/api/mapversion` on load and switches to it automatically,
+so the base map keeps working with no code change. `index.html` keeps a
+last-known-good version as a fallback; if the lookup ever fails, the map uses
+that fallback and shows a small red "fallback map version" badge in the corner.
+
 ## Files
 
 - `index.html` — the whole app (map, routing, data, water mask all inline)
 - `api/wikisync.js` — serverless WikiSync proxy (Vercel)
-- `sail.py` — local server + proxy, for running without deploying
+- `api/mapversion.js` — serverless lookup for the wiki's current map tile version (Vercel)
+- `sail.py` — local server + proxies, for running without deploying

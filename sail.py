@@ -6,7 +6,7 @@ proxies WikiSync so the "Look up live" button works with a single click —
 no copy/paste. Close the window to stop.
 """
 import http.server, socketserver, urllib.request, urllib.parse, urllib.error
-import json, os, sys, threading, webbrowser
+import json, os, re, sys, threading, webbrowser
 
 PORT = 8731
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +29,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path.startswith("/mapversion") or self.path.startswith("/api/mapversion"):
+            # Return the wiki's current map tile version so the page always points at live tiles.
+            try:
+                req = urllib.request.Request(
+                    "https://oldschool.runescape.wiki/w/RuneScape:Map",
+                    headers={"User-Agent": UA})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    html = r.read().decode("utf-8", "replace")
+                m = re.search(r"osrs/versions/(\d{4}-\d{2}-\d{2}_[a-z])/tiles/rendered", html)
+                if not m:
+                    return self._json(502, {"error": "version not found on wiki map page"})
+                return self._json(200, {"version": m.group(1)})
+            except Exception as e:
+                return self._json(502, {"error": str(e)})
         if self.path.startswith("/wikisync") or self.path.startswith("/api/wikisync"):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             user = (q.get("u", [""])[0]).strip()

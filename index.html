@@ -101,6 +101,13 @@ body{display:flex; flex-direction:column}
 .ocrow .ocname{flex:1}
 .ocrow .occount{opacity:.7; font-size:12px}
 #menuBtn{display:none}
+/* corner badge shown only when the live map-version lookup failed and we're on the saved fallback */
+#mapVerBadge{position:fixed; left:12px; bottom:12px; z-index:3500; display:flex; align-items:center; gap:7px;
+  background:var(--panel); color:var(--fg); border:1px solid #c0392b; border-left:4px solid #c0392b;
+  border-radius:8px; padding:7px 11px; font-size:12px; font-weight:600; box-shadow:0 4px 14px rgba(0,0,0,.35);
+  font-family:ui-sans-serif, system-ui, "Segoe UI", sans-serif; cursor:help; max-width:70vw}
+#mapVerBadge .dot{display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px;
+  border-radius:50%; background:#c0392b; color:#fff; font-size:12px; font-weight:800; flex:none}
 /* ---- mobile / narrow screens: slim top bar + tap-to-open controls drawer ---- */
 @media (max-width:640px){
   .topbar{padding:7px 12px}
@@ -244,16 +251,40 @@ const WORLD = L.latLngBounds(
   [Math.max(..._ys)+150, Math.max(..._xs)+150]
 );
 const map = L.map('map', { crs: L.CRS.Simple, minZoom: -3, maxZoom: 7, zoomControl: true, attributionControl: false, maxBounds: WORLD.pad(0.08), maxBoundsViscosity: 0.7 });
-// Current wiki tile set (has Varlamore, Sailing, etc). Same game-coord projection as before.
-// To refresh later: bump TILE_VERSION to the newest from a wiki map page's tile URL.
-const TILE_VERSION = '2026-10-20_a';
+// Fallback (last-known-good) wiki tile version. The wiki retires versions every few months, so on
+// load we fetch the live one from /api/mapversion and switch to it; this value only kicks in if that
+// lookup fails (see syncTileVersion below). Keep it current when you touch this file.
+let TILE_VERSION = '2026-10-20_a';
 const RSTiles = L.TileLayer.extend({
   getTileUrl: function(c){ return `https://maps.runescape.wiki/osrs/versions/${TILE_VERSION}/tiles/rendered/0/${c.z}/0_${c.x}_${-c.y - 1}.png`; }
 });
 // native tiles exist z-3…3; Leaflet downscales beyond. Tiles only load within WORLD; outside and
 // any un-rendered open ocean (404) falls back to a solid ocean-blue tile, never black.
 const OCEAN_TILE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMIz5kLAAJ+AWFeJhQUAAAAAElFTkSuQmCC';
-new RSTiles('', { minZoom:-3, maxZoom:7, maxNativeZoom:3, minNativeZoom:-3, noWrap:true, bounds: WORLD, errorTileUrl: OCEAN_TILE, keepBuffer:3 }).addTo(map);
+const rsTiles = new RSTiles('', { minZoom:-3, maxZoom:7, maxNativeZoom:3, minNativeZoom:-3, noWrap:true, bounds: WORLD, errorTileUrl: OCEAN_TILE, keepBuffer:3 }).addTo(map);
+// Keep the map on the wiki's live tile version. If the lookup fails we stay on TILE_VERSION (the
+// fallback) and flag it with a corner badge so it's obvious the map may be a version behind.
+(function syncTileVersion(){
+  fetch('/api/mapversion', {cache:'no-store'})
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(j => {
+      const v = j && j.version;
+      if(!/^\d{4}-\d{2}-\d{2}_[a-z]$/.test(v||'')) throw new Error('bad version');
+      if(v !== TILE_VERSION){ TILE_VERSION = v; rsTiles.redraw(); }
+      setMapVersionBadge(false);   // confirmed live & current
+    })
+    .catch(() => setMapVersionBadge(true));   // couldn't confirm → running on the fallback
+})();
+function setMapVersionBadge(fallback){
+  let b = document.getElementById('mapVerBadge');
+  if(!fallback){ if(b) b.remove(); return; }
+  if(!b){
+    b = document.createElement('div'); b.id = 'mapVerBadge';
+    b.title = 'Could not reach the wiki to confirm the current map version, so the map is using a saved version ('+TILE_VERSION+'). It still works; it may just be one update behind.';
+    b.innerHTML = '<span class="dot">!</span> fallback map version';
+    document.body.appendChild(b);
+  }
+}
 function toLatLng(x, y){ return L.latLng(y, x); }
 
 // "Unlocked" panel snapped to the map's right edge: check a facility you own and tasks that need it
