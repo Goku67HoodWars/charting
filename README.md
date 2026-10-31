@@ -17,7 +17,7 @@ builds and hosts it from here, and every push redeploys the live site.
 - 2-opt route ordering to cut out backtracks
 - Task filters by type, ocean, and boat unlocks (with tooltips)
 - Current-duck and weather drifts drawn start → end
-- One-click WikiSync lookup: pulls completed charts + Sailing level for any name
+- WikiSync import: one-click lookup where allowed, with a copy-paste fallback (the wiki blocks server-side lookups)
 - Click tasks to mark them done; isolated tasks flagged separately
 - Guided first-run walkthrough, responsive down to phone width
 
@@ -30,12 +30,16 @@ WikiSync lookup at <http://localhost:8731/index.html>.
 
 The page is static, but WikiSync blocks cross-origin reads, so live lookup
 needs a tiny proxy. `api/wikisync.js` is that proxy — Vercel runs it for free.
+The wiki now also blocks requests from datacenter IPs, so when the proxy is
+refused the app falls back to a copy-paste import: open your WikiSync page in
+your own browser and paste the JSON. That path always works.
 
 1. Push this folder to a **GitHub repo**.
 2. At <https://vercel.com>, sign up with GitHub (free Hobby plan, no card).
 3. **Add New → Project → Import** your repo → **Deploy**. No settings needed —
    Vercel serves `index.html` and runs `api/wikisync.js` automatically.
-4. Open your `*.vercel.app` URL. "Look up" now works for anyone.
+4. Open your `*.vercel.app` URL. **Look up** tries the proxy, then offers the
+   paste-import if the wiki refuses it.
 
 Every `git push` redeploys automatically.
 
