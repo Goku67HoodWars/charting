@@ -438,8 +438,8 @@ function waterPath(ax,ay,bx,by){
 
 const lvl = document.getElementById('lvl');
 const togPath = document.getElementById('togPath');
-// per-type show/hide (checked = show). Diving & weather start hidden (her preference).
-const typeOn = types.map(()=>true); typeOn[DIVING]=false; typeOn[WEATHER]=false;
+// per-type show/hide (checked = show). All types start on.
+const typeOn = types.map(()=>true);
 const hideDone = document.getElementById('hideDone');
 const summary = document.getElementById('summary');
 
