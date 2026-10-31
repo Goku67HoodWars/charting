@@ -80,8 +80,8 @@ body{display:flex; flex-direction:column}
 .modal-btns .danger{background:var(--accent); border-color:var(--accent); color:#fff}
 .modal-btns .danger:hover{filter:brightness(1.08)}
 .modal-card.modal-wide{max-width:440px}
-.modal-card .ws-open{display:inline-block; margin:0 0 12px; font-size:13.5px; color:var(--accent); text-decoration:none; font-weight:600}
-.modal-card .ws-open:hover{text-decoration:underline}
+.modal-card .ws-open{display:block; text-align:center; margin:0 0 12px; padding:9px 12px; font-size:13.5px; font-weight:600; color:#fff; background:var(--accent); border:1px solid var(--accent); border-radius:7px; text-decoration:none}
+.modal-card .ws-open:hover{filter:brightness(1.08)}
 .modal-card .ws-paste{width:100%; box-sizing:border-box; height:120px; resize:vertical; font:12px ui-monospace, "Cascadia Code", Consolas, monospace; background:var(--field); color:var(--fg); border:1px solid var(--rule); border-radius:7px; padding:8px; margin:0 0 10px}
 .modal-card .ws-paste:focus{outline:none; border-color:var(--accent)}
 .modal-card .modal-err{color:#e06c6c; font-size:12.5px; margin:0 0 10px; line-height:1.4}
@@ -800,8 +800,8 @@ function pasteImport(uname){
   const back = document.createElement('div'); back.className = 'modal-back';
   back.innerHTML =
     `<div class="modal-card modal-wide" role="dialog" aria-modal="true">`+
-    `<h3>Import your charts</h3>`+
-    `<p>The wiki blocks our one-click lookup from the server. Open your WikiSync page, select all (Ctrl+A) and copy, then paste it below.</p>`+
+    `<h3>One-click lookup is blocked</h3>`+
+    `<p>The RuneScape wiki admins have locked WikiSync to their own site, so the community's crowdsourced data only benefits the wiki — not the community that made it. Until that changes, grab yours by hand: open your page below, select all (Ctrl+A) and copy, then paste it here.</p>`+
     `<a class="ws-open" target="_blank" rel="noopener"></a>`+
     `<textarea class="ws-paste" placeholder="Paste the WikiSync text here"></textarea>`+
     `<div class="modal-err" hidden></div>`+
