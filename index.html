@@ -79,6 +79,12 @@ body{display:flex; flex-direction:column}
 .modal-btns button:hover{border-color:var(--accent)}
 .modal-btns .danger{background:var(--accent); border-color:var(--accent); color:#fff}
 .modal-btns .danger:hover{filter:brightness(1.08)}
+.modal-card.modal-wide{max-width:440px}
+.modal-card .ws-open{display:inline-block; margin:0 0 12px; font-size:13.5px; color:var(--accent); text-decoration:none; font-weight:600}
+.modal-card .ws-open:hover{text-decoration:underline}
+.modal-card .ws-paste{width:100%; box-sizing:border-box; height:120px; resize:vertical; font:12px ui-monospace, "Cascadia Code", Consolas, monospace; background:var(--field); color:var(--fg); border:1px solid var(--rule); border-radius:7px; padding:8px; margin:0 0 10px}
+.modal-card .ws-paste:focus{outline:none; border-color:var(--accent)}
+.modal-card .modal-err{color:#e06c6c; font-size:12.5px; margin:0 0 10px; line-height:1.4}
 .taskicon{position:relative; background:#fffaf0; border:2px solid #000; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center}
 .taskicon.done{background:#3aa655; border-color:#1e7a3a !important; opacity:.5}
 .taskicon.done img{filter:grayscale(0.5)}
@@ -775,14 +781,47 @@ async function fetchSync(u){
   try { const r = await fetch(`https://sync.runescape.wiki/runelite/player/${encodeURIComponent(u)}/STANDARD`); if(r.ok) return await r.json(); } catch(_){}
   return null;
 }
+function tourAfterSync(){ if(typeof tourAwaitLookup!=='undefined' && tourAwaitLookup){ tourAwaitLookup=false; advanceTour(); } }  // tour gate: proceed once synced
 async function doLookup(){
   const u = wsUser.value.trim();
   if(!u){ wsStatus.textContent = 'Enter a name first.'; return; }
   wsStatus.textContent = `Looking up ${u}…`;
   const j = await fetchSync(u);
-  if(j && (Array.isArray(j)?j:j.sea_charting)) applySync(j, u);
-  else wsStatus.innerHTML = `No data for <b>${u}</b>. The account must have uploaded via the RuneLite <b>WikiSync</b> plugin first (open RuneLite while logged in with WikiSync enabled).`;
-  if(typeof tourAwaitLookup!=='undefined' && tourAwaitLookup){ tourAwaitLookup=false; advanceTour(); }  // tour gate: proceed once they've looked up
+  if(j && (Array.isArray(j)?j:j.sea_charting)){ applySync(j, u); tourAfterSync(); }
+  else {                                          // proxy blocked (wiki 403s our server) — fall back to manual paste
+    wsStatus.innerHTML = `Auto-lookup is blocked by the wiki — opening manual import…`;
+    pasteImport(u);
+  }
+}
+// Manual import: the wiki lets a real browser read WikiSync but blocks our server, so the user opens
+// their own WikiSync page and pastes the JSON. Feeds the same applySync() the live lookup uses.
+function pasteImport(uname){
+  const url = `https://sync.runescape.wiki/runelite/player/${encodeURIComponent(uname)}/STANDARD`;
+  const back = document.createElement('div'); back.className = 'modal-back';
+  back.innerHTML =
+    `<div class="modal-card modal-wide" role="dialog" aria-modal="true">`+
+    `<h3>Import your charts</h3>`+
+    `<p>The wiki blocks our one-click lookup from the server. Open your WikiSync page, select all (Ctrl+A) and copy, then paste it below.</p>`+
+    `<a class="ws-open" target="_blank" rel="noopener"></a>`+
+    `<textarea class="ws-paste" placeholder="Paste the WikiSync text here"></textarea>`+
+    `<div class="modal-err" hidden></div>`+
+    `<div class="modal-btns"><button class="cancel">Cancel</button><button class="danger">Import</button></div></div>`;
+  document.body.appendChild(back);
+  const link = back.querySelector('.ws-open');
+  link.href = url; link.textContent = `Open ${uname}’s WikiSync page ↗`;   // textContent, so a typed name can't break markup
+  const ta = back.querySelector('.ws-paste'), err = back.querySelector('.modal-err');
+  const close = ()=>{ back.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e=>{ if(e.key==='Escape') close(); };
+  back.querySelector('.cancel').onclick = close;
+  back.addEventListener('click', e=>{ if(e.target===back) close(); });
+  document.addEventListener('keydown', onKey);
+  back.querySelector('.danger').onclick = ()=>{
+    let j; try{ j = JSON.parse(ta.value.trim()); }
+    catch(_){ err.textContent = 'That isn’t valid WikiSync text — copy the whole page (Ctrl+A, Ctrl+C).'; err.hidden = false; return; }
+    if(!(Array.isArray(j) ? j : (j && j.sea_charting))){ err.textContent = 'No sea charting data in that text. The account must have uploaded via the RuneLite WikiSync plugin.'; err.hidden = false; return; }
+    applySync(j, uname); close(); tourAfterSync();
+  };
+  setTimeout(()=>ta.focus(), 0);
 }
 document.getElementById('wsLookup').addEventListener('click', doLookup);
 wsUser.addEventListener('keydown', e => { if(e.key==='Enter') doLookup(); });
