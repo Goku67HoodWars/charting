@@ -554,9 +554,9 @@ function buildRoute(pts, mode){
       const t=ord[idx]; if(absorbed.has(t[0])) continue;
       order.set(t[0], ++seq);         // number every task in a done-independent order, so completing one never renumbers the rest
       const oi=t[7], e=entry(t), tDone=done.has(t[0]);
-      // A completed task draws no approach leg but still advances the cursor THROUGH it, so the rest of
-      // the route is left untouched: finishing 3 just erases the 2→3 line and keeps 3→4 exactly as it was.
-      if(!tDone) legs.push({kind: first?'hop':'travel', ocean:oi, from:[cx,cy], to:e});
+      // Every leg is drawn regardless of done-state; a completed task's legs are kept but dimmed (l.done)
+      // and the cursor still advances THROUGH it, so the route geometry never shifts as you tick tasks off.
+      legs.push({kind: first?'hop':'travel', ocean:oi, from:[cx,cy], to:e, done:tDone});
       first=false;
       if(isDrift(t)){
         const s=e, en=t[8], dk=driftKind(t);
@@ -569,8 +569,8 @@ function buildRoute(pts, mode){
         }
         cor.sort((a,b)=>a.t-b.t);
         let px=s[0], py=s[1];
-        for(const c of cor){ order.set(c.q[0], ++seq); if(!done.has(c.q[0])) legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe}); px=c.qe[0]; py=c.qe[1]; }  // gate on q's OWN done-state, not the drift's — else completing a duck orphans the tasks riding its current
-        if(!tDone) legs.push({kind:dk, ocean:oi, from:[px,py], to:en});
+        for(const c of cor){ order.set(c.q[0], ++seq); legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe, done:done.has(c.q[0])}); px=c.qe[0]; py=c.qe[1]; }  // each absorbed task's leg is kept and dimmed per its OWN done-state, not the drift's
+        legs.push({kind:dk, ocean:oi, from:[px,py], to:en, done:tDone});
         cx=en[0]; cy=en[1];
       } else {
         cx=e[0]; cy=e[1];
@@ -644,7 +644,7 @@ function render(){
         // no navigable water route (separate/enclosed seas): faint grey "relocate" hairline,
         // never a bold line implying you sail across land
         L.polyline([toLatLng(l.from[0],l.from[1]), toLatLng(l.to[0],l.to[1])], {
-          color:'#9a9a9a', weight:1.5, opacity:0.5, dashArray:'2 7'
+          color:'#9a9a9a', weight:1.5, opacity:l.done?0.2:0.5, dashArray:'2 7'
         }).addTo(routeLayer).bindTooltip('relocate (no direct water route)', {sticky:true});
         continue;
       }
@@ -654,16 +654,16 @@ function render(){
       const latlngs = pathPts.map(p=>toLatLng(p[0],p[1]));
       const line = L.polyline(latlngs, {
         color: col, weight: isDrift?2.5:3.5,
-        opacity: l.kind==='hop'?0.55:0.92,
+        opacity: l.done ? 0.3 : (l.kind==='hop'?0.55:0.92),   // completed legs stay visible but dulled, not erased
         dashArray: l.kind==='hop' ? '10 8' : (isDrift ? '4 6' : null)
       }).addTo(routeLayer);
       if(L.polylineDecorator){
         L.polylineDecorator(line, { patterns:[
-          { offset: '12%', repeat: 75, symbol: L.Symbol.arrowHead({ pixelSize: isDrift?8:10, polygon:true, pathOptions:{ color:col, fillOpacity:0.95, weight:0 } }) }
+          { offset: '12%', repeat: 75, symbol: L.Symbol.arrowHead({ pixelSize: isDrift?8:10, polygon:true, pathOptions:{ color:col, fillOpacity:l.done?0.3:0.95, weight:0 } }) }
         ]}).addTo(routeLayer);
       }
       if(isDrift){
-        L.circleMarker(latlngs[latlngs.length-1], { radius:4, color:driftCol, weight:2, fill:true, fillColor:'#fff', fillOpacity:0.85 }).addTo(duckLayer)
+        L.circleMarker(latlngs[latlngs.length-1], { radius:4, color:driftCol, weight:2, opacity:l.done?0.4:1, fill:true, fillColor:'#fff', fillOpacity:l.done?0.3:0.85 }).addTo(duckLayer)
           .bindTooltip(l.kind==='weather'?'weather station moves to here':'duck drifts to here', {direction:'top'});
       }
     }
