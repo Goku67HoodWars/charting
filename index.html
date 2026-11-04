@@ -46,6 +46,8 @@ body{display:flex; flex-direction:column}
 .topbar button{font:inherit; font-size:13px; padding:5px 12px; border:1px solid var(--rule); background:var(--field); color:var(--fg); border-radius:6px; cursor:pointer}
 .topbar button:hover{border-color:var(--accent)}
 .topbar .btn-primary{background:var(--accent); border-color:var(--accent); color:#fff}
+.toolbar select{font:inherit; font-size:12px; padding:3px 6px; background:var(--field); color:var(--fg); border:1px solid var(--rule); border-radius:6px; cursor:pointer}
+.toolbar select:hover{border-color:var(--accent)}
 .topbar .btn-primary:hover{filter:brightness(1.08)}
 .typebar{display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:12px; padding:10px 0; border-top:1px solid var(--rule)}
 .typechip{display:inline-flex; align-items:center; gap:6px; padding:4px 11px 4px 8px; border:1px solid var(--rule); border-radius:999px; font-size:12px; cursor:pointer; color:var(--muted); user-select:none}
@@ -190,6 +192,7 @@ body{display:flex; flex-direction:column}
     <div class="grp">
       <label class="chk"><input type="checkbox" id="togPath" checked> Route</label>
       <label class="chk"><input type="checkbox" id="hideDone"> Hide done</label>
+      <select id="routeMode" title="Route order" aria-label="Route order"><option value="fast">Fastest</option><option value="ocean">By ocean</option></select>
     </div>
     <div class="grp">
       <button id="setStart" type="button">Set start</button>
@@ -439,6 +442,8 @@ function waterPath(ax,ay,bx,by){
 
 const lvl = document.getElementById('lvl');
 const togPath = document.getElementById('togPath');
+const routeMode = document.getElementById('routeMode');
+routeMode.addEventListener('change', render);
 // per-type show/hide (checked = show). All types start on.
 const typeOn = types.map(()=>true);
 const hideDone = document.getElementById('hideDone');
@@ -516,14 +521,27 @@ function twoOpt(ord, sx, sy){
 }
 // Returns ordered legs: within each sea, order is nearest-neighbor then 2-opt-improved so there
 // are no silly backtracks; ducks/weather expand into drift legs that pick up corridor tasks.
-function buildRoute(pts){
-  const bySea = new Map();
-  for(const p of pts){ if(!bySea.has(p[6])) bySea.set(p[6], []); bySea.get(p[6]).push(p); }
+function buildRoute(pts, mode){
+  // Group tasks for the outer "clear one region before the next" loop. Fastest = by sea (tight local
+  // clusters). By ocean = by (ocean, sea): same tight sea clusters, but the loop below finishes every
+  // sea of one ocean before hopping to the nearest next ocean, so a whole ocean is cleared at a time.
+  const keyOf = mode==='ocean' ? (p=>p[7]+'|'+p[6]) : (p=>p[6]);
+  const bySea = new Map(); const groupOcean = new Map();
+  for(const p of pts){ const k=keyOf(p); if(!bySea.has(k)){ bySea.set(k, []); groupOcean.set(k, p[7]); } bySea.get(k).push(p); }
   const legs = []; const order = new Map(); const isolated = new Set(); let seq = 0;
-  let cx=START.x, cy=START.y; const rem=new Set(bySea.keys());
+  let cx=START.x, cy=START.y; const rem=new Set(bySea.keys()); let activeOcean=null;
   while(rem.size){
+    let cand=rem;
+    if(mode==='ocean'){                 // stay inside the current ocean until all its seas are done,
+      if(activeOcean===null || ![...rem].some(k=>groupOcean.get(k)===activeOcean)){
+        let nk=null,nd=Infinity;        // then jump to the ocean holding the nearest remaining sea
+        for(const k of rem) for(const p of bySea.get(k)){ const e=entry(p); const d=Math.hypot(e[0]-cx,e[1]-cy); if(d<nd){nd=d;nk=k;} }
+        activeOcean=groupOcean.get(nk);
+      }
+      cand=new Set([...rem].filter(k=>groupOcean.get(k)===activeOcean));
+    }
     let bk=null, bd=Infinity;
-    for(const k of rem) for(const p of bySea.get(k)){ const e=entry(p); const d=Math.hypot(e[0]-cx,e[1]-cy); if(d<bd){bd=d;bk=k;} }
+    for(const k of cand) for(const p of bySea.get(k)){ const e=entry(p); const d=Math.hypot(e[0]-cx,e[1]-cy); if(d<bd){bd=d;bk=k;} }
     // split this sea's tasks by water body; route the biggest, flag the rest as isolated ("?")
     const groups = new Map();
     for(const t of bySea.get(bk)){ const c=taskComp(t); if(!groups.has(c)) groups.set(c,[]); groups.get(c).push(t); }
@@ -535,10 +553,11 @@ function buildRoute(pts){
     let first = true;
     for(let idx=0; idx<ord.length; idx++){
       const t=ord[idx]; if(absorbed.has(t[0])) continue;
-      order.set(t[0], ++seq);         // stable number for every task (done included) — the line below skips the done ones
-      if(done.has(t[0])) continue;    // completed: keep its number slot, draw no leg, leave the cursor put
-      const oi=t[7], e=entry(t);
-      legs.push({kind: first?'hop':'travel', ocean:oi, from:[cx,cy], to:e});
+      order.set(t[0], ++seq);         // number every task in a done-independent order, so completing one never renumbers the rest
+      const oi=t[7], e=entry(t), tDone=done.has(t[0]);
+      // A completed task draws no approach leg but still advances the cursor THROUGH it, so the rest of
+      // the route is left untouched: finishing 3 just erases the 2→3 line and keeps 3→4 exactly as it was.
+      if(!tDone) legs.push({kind: first?'hop':'travel', ocean:oi, from:[cx,cy], to:e});
       first=false;
       if(isDrift(t)){
         const s=e, en=t[8], dk=driftKind(t);
@@ -551,8 +570,8 @@ function buildRoute(pts){
         }
         cor.sort((a,b)=>a.t-b.t);
         let px=s[0], py=s[1];
-        for(const c of cor){ order.set(c.q[0], ++seq); if(done.has(c.q[0])) continue; legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe}); px=c.qe[0]; py=c.qe[1]; }
-        legs.push({kind:dk, ocean:oi, from:[px,py], to:en});
+        for(const c of cor){ order.set(c.q[0], ++seq); if(!tDone && !done.has(c.q[0])) legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe}); px=c.qe[0]; py=c.qe[1]; }
+        if(!tDone) legs.push({kind:dk, ocean:oi, from:[px,py], to:en});
         cx=en[0]; cy=en[1];
       } else {
         cx=e[0]; cy=e[1];
@@ -616,7 +635,7 @@ function render(){
   // single connected route over not-done tasks; duck legs (start→drift-end) are threaded in blue
   let legs = [], order = new Map(), isolated = new Set();
   if(togPath.checked){
-    const r = buildRoute(routable); legs = r.legs; order = r.order; isolated = r.isolated;
+    const r = buildRoute(routable, routeMode.value); legs = r.legs; order = r.order; isolated = r.isolated;
     for(const l of legs){
       const isDrift = l.kind === 'duck' || l.kind === 'weather';
       const driftCol = l.kind === 'weather' ? '#9b5cf6' : '#12d0e0'; // weather=violet, duck=cyan
