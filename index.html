@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="lib/leaflet.css">
 <script src="lib/leaflet.js"></script>
 <script src="lib/leaflet.polylineDecorator.min.js"></script>
+<script>window.L||document.write('<p style="font:16px/1.6 system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;color:#8a3e2b">The map library failed to load. Please hard-refresh the page — if it keeps happening, a content blocker may be interfering.<\/p>')</script>
 <style>
 :root{
   --bg:#f4ecd8; --panel:#fffaf0; --fg:#2a2419; --muted:#6b5e47; --rule:#d9c9a3;
@@ -341,7 +342,7 @@ const GEAR_DESC = {
   "Eternal brazier": "Icy seas (Everwinter, Idestia Strait, Kannski Tides, Lunar Sea, Shiverwake Expanse, Stoneheart Sea, V's Belt, Weiss Melt, Weissmere, Winter's Edge) freeze your crew and damage the ship without it. The schematic needs 76 Sailing.",
   "Inoculation station": "Fetid, disease-inducing waters (Backwater, Breakbone Strait, Mythic Sea, Sea of Souls, Zul-Egil) damage or slow the boat without it.",
   "Mast upgrade": "Stormy seas (Kharazi Strait, The Storm Tempor) hit you with lightning clouds. An Oak+ mast cuts the damage; Camphor/Ironwood/Rosewood masts prevent it entirely.",
-  "Requires raft": "A couple of tasks sit in water only a small raft can reach (Grandroot Bay current duck, the Black Lobster sealed crate) — the big boat can't get there."
+  "Requires raft": "A handful of tasks sit in water only a small raft can reach — the big boat can't get there."
 };
 const UNLOCK_CTL = L.control({position:'topright'});
 UNLOCK_CTL.onAdd = function(){
@@ -369,7 +370,7 @@ function cellCenter(cx,cy){ return [WX0+cx*CELL+CELL/2, WY0+cy*CELL+CELL/2]; }
 // Hand-patched water the auto-generated mask missed (confirmed sailable in-game). Each [x1,y1,x2,y2]
 // rectangle (game tiles) is forced to water, so A* routes through it instead of flagging it isolated.
 const WATER_PATCHES = [
-  [3205, 3130, 3281, 3139],   // Lumbridge Basin channel: duck (3209,3134) ↔ Sorodamin Bru drink crate (3277,3135)
+  [3205, 3132, 3281, 3137],   // Lumbridge Basin channel: duck (3209,3134) ↔ Sorodamin Bru drink crate (3277,3135)
 ];
 for(const [x1,y1,x2,y2] of WATER_PATCHES){
   const a=toCell(Math.min(x1,x2), Math.min(y1,y2)), b=toCell(Math.max(x1,x2), Math.max(y1,y2));
@@ -470,6 +471,7 @@ function computeWaterPath(ax,ay,bx,by){
   if(D<=24) return [[ax,ay],[bx,by]];   // adjacent tasks (e.g. two charts on the same pier): a straight hop reads cleaner than looping around the dock
   const sa=snapWater(ax,ay), sb=snapWater(bx,by);
   if(!sa||!sb) return null;
+  const ca=comp[sa[1]*GW+sa[0]], cb=comp[sb[1]*GW+sb[0]]; if(ca>=0 && cb>=0 && ca!==cb) return null;   // different water bodies → no route; skip the A* flood (render draws a relocate hairline)
   const grid=astar(sa[0],sa[1],sb[0],sb[1]);
   if(!grid) return null;
   let path=[[ax,ay], ...grid, [bx,by]];
@@ -609,7 +611,7 @@ function buildRoute(pts, mode){
         // pull not-yet-visited non-drift tasks lying along the drift corridor, ordered start→end
         const cor=[];
         for(let k=idx+1;k<ord.length;k++){
-          const q=ord[k]; if(absorbed.has(q[0]) || isDrift(q)) continue; const qe=entry(q);
+          const q=ord[k]; if(absorbed.has(q[0]) || isDrift(q) || taskComp(q)!==taskComp(t)) continue; const qe=entry(q);
           const r=segProj(qe[0],qe[1], s[0],s[1], en[0],en[1]);
           if(r.d<=CORRIDOR && r.t>0.02 && r.t<0.98){ cor.push({q, qe, t:r.t}); absorbed.add(q[0]); }
         }
@@ -635,7 +637,7 @@ function buildRoute(pts, mode){
     const dx=a.to[0]-a.from[0], dy=a.to[1]-a.from[1], L2=dx*dx+dy*dy||1;             // and b's far end must land back along a (real overlap)
     const t=((b.to[0]-a.from[0])*dx+(b.to[1]-a.from[1])*dy)/L2;
     const perp=Math.abs((b.to[0]-a.from[0])*dy-(b.to[1]-a.from[1])*dx)/Math.sqrt(L2);
-    if(t>0.05 && t<0.95 && perp<15){ a.bow=true; b.bow=true; }
+    if(t>-0.05 && t<0.95 && perp<15){ a.bow=true; b.bow=true; }
   }
   return { legs, order, isolated };
 }
@@ -709,6 +711,9 @@ function render(){
       if(!raw){
         // no navigable water route (separate/enclosed seas): faint grey "relocate" hairline,
         // never a bold line implying you sail across land
+        if(walkCurId!=null && (l.toId===walkCurId || l.toId===walkNextId)){   // Play still glows the relocate hop to/from the focused task
+          L.polyline([toLatLng(l.from[0],l.from[1]), toLatLng(l.to[0],l.to[1])], { color:'#ffd54a', weight:9, opacity:0.5, lineCap:'round' }).addTo(routeLayer);
+        }
         L.polyline([toLatLng(l.from[0],l.from[1]), toLatLng(l.to[0],l.to[1])], {
           color:'#9a9a9a', weight:1.5, opacity:l.done?0.2:0.5, dashArray:'2 7'
         }).addTo(routeLayer).bindTooltip('relocate (no direct water route)', {sticky:true});
