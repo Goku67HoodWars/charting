@@ -166,6 +166,13 @@ body{display:flex; flex-direction:column}
   .leaflet-top.leaflet-right{max-width:60vw}
   .tour-pop{width:min(290px, calc(100vw - 20px))}
 }
+#walkBar{position:fixed; left:50%; transform:translateX(-50%); bottom:calc(18px + env(safe-area-inset-bottom,0px)); z-index:1200; display:flex; align-items:center; gap:8px; padding:7px 9px; background:var(--panel); color:var(--fg); border:1px solid var(--rule); border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.35)}
+#walkBar button{font:inherit; line-height:1; padding:7px 13px; background:var(--field); color:var(--fg); border:1px solid var(--rule); border-radius:8px; cursor:pointer}
+#walkBar button:hover:not(:disabled){border-color:var(--accent)}
+#walkBar button:disabled{opacity:.4; cursor:default}
+#walkBar #walkExit{padding:7px 10px; color:var(--muted)}
+#walkLabel{font-size:13px; min-width:160px; max-width:46vw; text-align:center; line-height:1.25}
+#walkLabel .wl-sub{display:block; font-size:11px; color:var(--muted)}
 </style>
 </head>
 <body>
@@ -193,6 +200,7 @@ body{display:flex; flex-direction:column}
       <label class="chk"><input type="checkbox" id="togPath" checked> Route</label>
       <label class="chk"><input type="checkbox" id="hideDone"> Hide done</label>
       <select id="routeMode" title="Route order" aria-label="Route order"><option value="fast">Fastest</option><option value="ocean">By ocean</option></select>
+      <button id="walkBtn" type="button" title="Step through the route task by task">▶ Play</button>
     </div>
     <div class="grp">
       <button id="setStart" type="button">Set start</button>
@@ -622,6 +630,7 @@ function offsetPath(pts, dist){
 const duckLayer = L.layerGroup().addTo(map);
 
 let visible = [];
+let routeOrder = new Map(), routeById = new Map();   // last computed route (seq ↔ task), for the Play walkthrough
 function render(){
   const L_ = Math.max(1, Math.min(99, +lvl.value || 1));
   // `shown` = everything drawn on the map; `visible` = the routable subset (completed tasks are
@@ -646,6 +655,7 @@ function render(){
   let legs = [], order = new Map(), isolated = new Set();
   if(togPath.checked){
     const r = buildRoute(routable, routeMode.value); legs = r.legs; order = r.order; isolated = r.isolated;
+    routeOrder = order; routeById = new Map(routable.map(t=>[t[0],t]));   // expose the route to the Play walkthrough
     for(const l of legs){
       const isDrift = l.kind === 'duck' || l.kind === 'weather';
       const driftCol = l.kind === 'weather' ? '#9b5cf6' : '#12d0e0'; // weather=violet, duck=cyan
@@ -941,6 +951,51 @@ function startTour(replay){
   window.addEventListener('resize', positionTour);
   renderTourStep();
 }
+// ---- Route walkthrough: "Play" steps through the route task by task, framing each task with its
+// previous and next so you see the leg in and the leg out. On-screen buttons or ← → arrows advance.
+let walkSeq = 0;   // 0 = inactive
+const walkBar = document.createElement('div'); walkBar.id = 'walkBar'; walkBar.hidden = true;
+walkBar.innerHTML = '<button id="walkPrev" type="button" aria-label="Previous task">◀</button>'
+  + '<div id="walkLabel"></div>'
+  + '<button id="walkNext" type="button" aria-label="Next task">▶</button>'
+  + '<button id="walkExit" type="button" aria-label="Exit walkthrough" title="Exit">✕</button>';
+document.body.appendChild(walkBar);
+const walkMax = () => { let m=0; for(const n of routeOrder.values()) if(n>m) m=n; return m; };
+const taskAtSeq = seq => { for(const [id,n] of routeOrder) if(n===seq) return routeById.get(id); return null; };
+function startWalk(){
+  if(!togPath.checked){ togPath.checked = true; render(); }
+  if(walkMax()===0) return;                       // nothing routed
+  let s=1; const M=walkMax();
+  for(let n=1;n<=M;n++){ const t=taskAtSeq(n); if(t && !done.has(t[0])){ s=n; break; } }   // begin at the first task still to do
+  document.getElementById('walkBtn').textContent = '✕ Stop';
+  walkTo(s);
+}
+function walkTo(seq){
+  const M = walkMax(); if(M===0){ endWalk(); return; }
+  walkSeq = Math.max(1, Math.min(M, seq));
+  const cur = taskAtSeq(walkSeq); if(!cur){ endWalk(); return; }
+  const prev = taskAtSeq(walkSeq-1), next = taskAtSeq(walkSeq+1);
+  const pts = [[cur[3],cur[4]], prev ? [prev[3],prev[4]] : [START.x,START.y]];
+  if(next) pts.push([next[3],next[4]]);
+  const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+  map.fitBounds(L.latLngBounds(L.latLng(Math.min(...ys),Math.min(...xs)), L.latLng(Math.max(...ys),Math.max(...xs))).pad(0.4), {maxZoom:5});
+  walkBar.hidden = false;
+  document.getElementById('walkPrev').disabled = walkSeq<=1;
+  document.getElementById('walkNext').disabled = walkSeq>=M;
+  document.getElementById('walkLabel').innerHTML =
+    `<b>${walkSeq}</b> / ${M} · ${cur[1]}<span class="wl-sub">lvl ${cur[5]} · ${types[cur[2]].toLowerCase().replace(/_/g,' ')}${done.has(cur[0])?' · ✓ done':''}</span>`;
+}
+function endWalk(){ walkSeq = 0; walkBar.hidden = true; document.getElementById('walkBtn').textContent = '▶ Play'; }
+walkBar.querySelector('#walkPrev').onclick = ()=> walkTo(walkSeq-1);
+walkBar.querySelector('#walkNext').onclick = ()=> walkTo(walkSeq+1);
+walkBar.querySelector('#walkExit').onclick = endWalk;
+document.getElementById('walkBtn').addEventListener('click', ()=> walkSeq ? endWalk() : startWalk());
+document.addEventListener('keydown', e=>{
+  if(!walkSeq || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if(e.key==='ArrowRight'){ walkTo(walkSeq+1); e.preventDefault(); }
+  else if(e.key==='ArrowLeft'){ walkTo(walkSeq-1); e.preventDefault(); }
+  else if(e.key==='Escape'){ endWalk(); }
+});
 document.getElementById('helpBtn').addEventListener('click', ()=>startTour(true));   // replay: not gated
 document.getElementById('menuBtn').addEventListener('click', ()=> document.querySelector('.topbar').classList.toggle('menu-open'));
 document.addEventListener('keydown', e => { if(e.key==='Escape' && tourPop) endTour(); });
