@@ -985,10 +985,16 @@ function walkTo(seq){
   walkCurId = cur[0]; walkNextId = next ? next[0] : null;
   render();                                        // redraw so the glow follows the current task + its legs
   const prev = taskAtSeq(walkSeq-1);
-  const pts = [[cur[3],cur[4]], prev ? [prev[3],prev[4]] : [START.x,START.y]];
-  if(next) pts.push([next[3],next[4]]);
-  const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
-  map.fitBounds(L.latLngBounds(L.latLng(Math.min(...ys),Math.min(...xs)), L.latLng(Math.max(...ys),Math.max(...xs))).pad(0.4), {maxZoom:5});
+  // Centre the current task on screen; zoom to include its neighbours when they're near, but never
+  // zoom way out just because the next task is across the map — keep the active task big and centred.
+  const near = [prev ? [prev[3],prev[4]] : [START.x,START.y]];
+  if(next) near.push([next[3],next[4]]);
+  // zoom from the NEAREST neighbour only, so a task across the map can't drag the view out; then
+  // centre on the current task so it always sits in the middle of the screen.
+  const nd = Math.min(...near.map(p=>Math.hypot(p[0]-cur[3], p[1]-cur[4]))) || 30;
+  const box = L.latLngBounds(toLatLng(cur[3]-nd, cur[4]-nd), toLatLng(cur[3]+nd, cur[4]+nd));
+  const z = Math.max(4, Math.min(5, map.getBoundsZoom(box)));
+  map.setView(toLatLng(cur[3],cur[4]), z, {animate:true});
   walkBar.hidden = false;
   document.getElementById('walkPrev').disabled = walkSeq<=1;
   document.getElementById('walkLabel').innerHTML =
