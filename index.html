@@ -166,13 +166,16 @@ body{display:flex; flex-direction:column}
   .leaflet-top.leaflet-right{max-width:60vw}
   .tour-pop{width:min(290px, calc(100vw - 20px))}
 }
-#walkBar{position:fixed; left:50%; transform:translateX(-50%); bottom:calc(18px + env(safe-area-inset-bottom,0px)); z-index:1200; display:flex; align-items:center; gap:8px; padding:7px 9px; background:var(--panel); color:var(--fg); border:1px solid var(--rule); border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.35)}
-#walkBar button{font:inherit; line-height:1; padding:7px 13px; background:var(--field); color:var(--fg); border:1px solid var(--rule); border-radius:8px; cursor:pointer}
+#walkBar{position:fixed; left:50%; transform:translateX(-50%); bottom:calc(20px + env(safe-area-inset-bottom,0px)); z-index:1200; display:flex; align-items:center; gap:10px; padding:11px 15px; background:var(--panel); color:var(--fg); border:1px solid var(--rule); border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.4)}
+#walkBar[hidden]{display:none}   /* #id beats the UA [hidden] rule, so hide it explicitly */
+#walkBar button{font:inherit; line-height:1; padding:11px 19px; font-size:21px; background:var(--field); color:var(--fg); border:1px solid var(--rule); border-radius:10px; cursor:pointer}
 #walkBar button:hover:not(:disabled){border-color:var(--accent)}
-#walkBar button:disabled{opacity:.4; cursor:default}
-#walkBar #walkExit{padding:7px 10px; color:var(--muted)}
-#walkLabel{font-size:13px; min-width:160px; max-width:46vw; text-align:center; line-height:1.25}
-#walkLabel .wl-sub{display:block; font-size:11px; color:var(--muted)}
+#walkBar button:disabled{opacity:.35; cursor:default}
+#walkBar #walkExit{padding:10px 15px; font-size:17px; color:var(--muted)}
+#walkLabel{font-size:17px; min-width:220px; max-width:52vw; text-align:center; line-height:1.3}
+#walkLabel .wl-sub{display:block; font-size:13px; color:var(--muted)}
+@keyframes walkpulse{0%,100%{box-shadow:0 0 0 3px #ffd54a,0 0 10px 3px rgba(255,213,74,.6)}50%{box-shadow:0 0 0 4px #ffd54a,0 0 22px 8px rgba(255,213,74,.95)}}
+.taskicon.walkfocus{animation:walkpulse 1.2s ease-in-out infinite}
 </style>
 </head>
 <body>
@@ -575,7 +578,7 @@ function buildRoute(pts, mode){
       const oi=t[7], e=entry(t), tDone=done.has(t[0]);
       // Every leg is drawn regardless of done-state; a completed task's legs are kept but dimmed (l.done)
       // and the cursor still advances THROUGH it, so the route geometry never shifts as you tick tasks off.
-      legs.push({kind: first?'hop':'travel', ocean:oi, from:[cx,cy], to:e, done:tDone});
+      legs.push({kind: first?'hop':'travel', ocean:oi, from:[cx,cy], to:e, done:tDone, toId:t[0]});
       first=false;
       if(isDrift(t)){
         const s=e, en=t[8], dk=driftKind(t);
@@ -588,8 +591,8 @@ function buildRoute(pts, mode){
         }
         cor.sort((a,b)=>a.t-b.t);
         let px=s[0], py=s[1];
-        for(const c of cor){ order.set(c.q[0], ++seq); legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe, done:done.has(c.q[0])}); px=c.qe[0]; py=c.qe[1]; }  // each absorbed task's leg is kept and dimmed per its OWN done-state, not the drift's
-        legs.push({kind:dk, ocean:oi, from:[px,py], to:en, done:tDone});
+        for(const c of cor){ order.set(c.q[0], ++seq); legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe, done:done.has(c.q[0]), toId:c.q[0]}); px=c.qe[0]; py=c.qe[1]; }  // each absorbed task's leg is kept and dimmed per its OWN done-state, not the drift's
+        legs.push({kind:dk, ocean:oi, from:[px,py], to:en, done:tDone, toId:t[0]});
         cx=en[0]; cy=en[1];
       } else {
         cx=e[0]; cy=e[1];
@@ -631,6 +634,7 @@ const duckLayer = L.layerGroup().addTo(map);
 
 let visible = [];
 let routeOrder = new Map(), routeById = new Map();   // last computed route (seq ↔ task), for the Play walkthrough
+let walkSeq = 0, walkCurId = null, walkNextId = null;   // Play walkthrough state (0/null = inactive)
 function render(){
   const L_ = Math.max(1, Math.min(99, +lvl.value || 1));
   // `shown` = everything drawn on the map; `visible` = the routable subset (completed tasks are
@@ -673,6 +677,9 @@ function render(){
       // opposite side from travel/hop legs, so a drift overlapping a travel line never stacks.
       const pathPts = offsetPath(raw, isDrift ? -5 : 5);
       const latlngs = pathPts.map(p=>toLatLng(p[0],p[1]));
+      if(walkCurId!=null && (l.toId===walkCurId || l.toId===walkNextId)){   // Play: glow the leg into the focused task and the one on to the next
+        L.polyline(latlngs, { color:'#ffd54a', weight:(isDrift?2.5:3.5)+9, opacity:0.5, lineCap:'round', lineJoin:'round' }).addTo(routeLayer);
+      }
       const line = L.polyline(latlngs, {
         color: col, weight: isDrift?2.5:3.5,
         opacity: l.done ? 0.3 : (l.kind==='hop'?0.55:0.92),   // completed legs stay visible but dulled, not erased
@@ -697,6 +704,7 @@ function render(){
   // task markers: not-done get an ocean ring + sequence number; done stay on the map green/faded, no number
   for(const p of shown){
     const isDone = done.has(p[0]);
+    const focus = p[0]===walkCurId;   // the task the Play walkthrough is currently on
     const key = ICON_KEY[types[p[2]]];
     const ring = oceanColor(p[7]);
     const n = isDone ? null : order.get(p[0]);
@@ -704,7 +712,7 @@ function render(){
     const badge = n ? `<span class="seqnum">${n}</span>` : (iso ? `<span class="seqnum iso" title="No water route found to this task">?</span>` : '');
     const icon = L.divIcon({
       className: '', iconSize:[30,30], iconAnchor:[15,15],
-      html: `<div class="taskicon${isDone?' done':''}" style="width:30px;height:30px;border-color:${isDone?'#1e7a3a':ring}"><img src="${ICONS[key]}" alt="">${badge}</div>`
+      html: `<div class="taskicon${isDone?' done':''}${focus?' walkfocus':''}" style="width:30px;height:30px;border-color:${isDone?'#1e7a3a':ring}"><img src="${ICONS[key]}" alt="">${badge}</div>`
     });
     const m = L.marker(toLatLng(p[3], p[4]), {icon}).addTo(markerLayer);
     const ocName = (p[7]>=0 ? oceans[p[7]][1] : '?');
@@ -879,6 +887,7 @@ const TOUR = [
   {sel:'#unlockPanel', title:'5 · Your boat unlocks', html:'Check a facility you own (mast upgrade, raft, eternal brazier…) to reveal the tasks that need it. Hover any row for what it means.', side:'left'},
   {sel:'#setStart', title:'6 · Change your start', html:'Click <em>Set start</em>, then any task, to begin the route somewhere other than Port Sarim.'},
   {sel:'#map', title:'7 · Mark tasks done', html:'Click any numbered task on the map to mark it done (it turns green) — click again to undo. Scroll to zoom, drag to pan.', center:true},
+  {sel:'#walkBtn', title:'8 · Play the route', html:'Press <em>Play</em> to step through the route one task at a time — it zooms to each task with its neighbours and <b style="color:#e0a93a">glows</b> the current one. Use the <b>◀ ▶</b> buttons or ← → arrow keys; advancing ticks the task off so your progress saves as you go.'},
   {sel:'#helpBtn', title:'That’s it!', html:'Follow the numbered route — <b style="color:#12d0e0">cyan</b> is a duck drift, <b style="color:#9b5cf6">violet</b> is weather. Reopen this tour anytime with <em>Guide</em>.'},
 ];
 let tourHole=null, tourPop=null, tourIdx=0, tourAwaitLookup=false, tourReplay=false;
@@ -952,8 +961,7 @@ function startTour(replay){
   renderTourStep();
 }
 // ---- Route walkthrough: "Play" steps through the route task by task, framing each task with its
-// previous and next so you see the leg in and the leg out. On-screen buttons or ← → arrows advance.
-let walkSeq = 0;   // 0 = inactive
+// previous and next, glowing the current task + its legs. Advancing (▶ / →) ticks the task off.
 const walkBar = document.createElement('div'); walkBar.id = 'walkBar'; walkBar.hidden = true;
 walkBar.innerHTML = '<button id="walkPrev" type="button" aria-label="Previous task">◀</button>'
   + '<div id="walkLabel"></div>'
@@ -964,9 +972,8 @@ const walkMax = () => { let m=0; for(const n of routeOrder.values()) if(n>m) m=n
 const taskAtSeq = seq => { for(const [id,n] of routeOrder) if(n===seq) return routeById.get(id); return null; };
 function startWalk(){
   if(!togPath.checked){ togPath.checked = true; render(); }
-  if(walkMax()===0) return;                       // nothing routed
-  let s=1; const M=walkMax();
-  for(let n=1;n<=M;n++){ const t=taskAtSeq(n); if(t && !done.has(t[0])){ s=n; break; } }   // begin at the first task still to do
+  const M = walkMax(); if(M===0) return;          // nothing routed
+  let s=1; for(let n=1;n<=M;n++){ const t=taskAtSeq(n); if(t && !done.has(t[0])){ s=n; break; } }   // begin at the first task still to do
   document.getElementById('walkBtn').textContent = '✕ Stop';
   walkTo(s);
 }
@@ -974,25 +981,32 @@ function walkTo(seq){
   const M = walkMax(); if(M===0){ endWalk(); return; }
   walkSeq = Math.max(1, Math.min(M, seq));
   const cur = taskAtSeq(walkSeq); if(!cur){ endWalk(); return; }
-  const prev = taskAtSeq(walkSeq-1), next = taskAtSeq(walkSeq+1);
+  const next = taskAtSeq(walkSeq+1);
+  walkCurId = cur[0]; walkNextId = next ? next[0] : null;
+  render();                                        // redraw so the glow follows the current task + its legs
+  const prev = taskAtSeq(walkSeq-1);
   const pts = [[cur[3],cur[4]], prev ? [prev[3],prev[4]] : [START.x,START.y]];
   if(next) pts.push([next[3],next[4]]);
   const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
   map.fitBounds(L.latLngBounds(L.latLng(Math.min(...ys),Math.min(...xs)), L.latLng(Math.max(...ys),Math.max(...xs))).pad(0.4), {maxZoom:5});
   walkBar.hidden = false;
   document.getElementById('walkPrev').disabled = walkSeq<=1;
-  document.getElementById('walkNext').disabled = walkSeq>=M;
   document.getElementById('walkLabel').innerHTML =
     `<b>${walkSeq}</b> / ${M} · ${cur[1]}<span class="wl-sub">lvl ${cur[5]} · ${types[cur[2]].toLowerCase().replace(/_/g,' ')}${done.has(cur[0])?' · ✓ done':''}</span>`;
 }
-function endWalk(){ walkSeq = 0; walkBar.hidden = true; document.getElementById('walkBtn').textContent = '▶ Play'; }
+function walkAdvance(){   // ▶ / → : mark the current task done ("I finished this"), then move on
+  const cur = taskAtSeq(walkSeq);
+  if(cur && !done.has(cur[0])){ done.add(cur[0]); saveDone(); }
+  if(walkSeq < walkMax()) walkTo(walkSeq+1); else endWalk();   // finishing the last task ends the walkthrough
+}
+function endWalk(){ walkSeq = 0; walkCurId = null; walkNextId = null; walkBar.hidden = true; document.getElementById('walkBtn').textContent = '▶ Play'; render(); }
 walkBar.querySelector('#walkPrev').onclick = ()=> walkTo(walkSeq-1);
-walkBar.querySelector('#walkNext').onclick = ()=> walkTo(walkSeq+1);
+walkBar.querySelector('#walkNext').onclick = walkAdvance;
 walkBar.querySelector('#walkExit').onclick = endWalk;
 document.getElementById('walkBtn').addEventListener('click', ()=> walkSeq ? endWalk() : startWalk());
 document.addEventListener('keydown', e=>{
   if(!walkSeq || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
-  if(e.key==='ArrowRight'){ walkTo(walkSeq+1); e.preventDefault(); }
+  if(e.key==='ArrowRight'){ walkAdvance(); e.preventDefault(); }
   else if(e.key==='ArrowLeft'){ walkTo(walkSeq-1); e.preventDefault(); }
   else if(e.key==='Escape'){ endWalk(); }
 });
