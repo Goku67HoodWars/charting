@@ -366,6 +366,17 @@ function inGrid(cx,cy){ return cx>=0&&cy>=0&&cx<GW&&cy<GH; }
 function isWaterCell(cx,cy){ if(!inGrid(cx,cy)) return true; const i=cellIdx(cx,cy); return (WM_BITS[i>>3]>>(i&7))&1; } // off-grid = open ocean
 function toCell(x,y){ return [Math.floor((x-WX0)/CELL), Math.floor((y-WY0)/CELL)]; }
 function cellCenter(cx,cy){ return [WX0+cx*CELL+CELL/2, WY0+cy*CELL+CELL/2]; }
+// Hand-patched water the auto-generated mask missed (confirmed sailable in-game). Each [x1,y1,x2,y2]
+// rectangle (game tiles) is forced to water, so A* routes through it instead of flagging it isolated.
+const WATER_PATCHES = [
+  [3205, 3130, 3281, 3139],   // Lumbridge Basin channel: duck (3209,3134) ↔ Sorodamin Bru drink crate (3277,3135)
+];
+for(const [x1,y1,x2,y2] of WATER_PATCHES){
+  const a=toCell(Math.min(x1,x2), Math.min(y1,y2)), b=toCell(Math.max(x1,x2), Math.max(y1,y2));
+  for(let cx=a[0]; cx<=b[0]; cx++) for(let cy=a[1]; cy<=b[1]; cy++){
+    if(inGrid(cx,cy)){ const i=cellIdx(cx,cy); WM_BITS[i>>3] |= (1<<(i&7)); }
+  }
+}
 // nearest water cell to a game point (ring search); null if none within radius
 const snapCache = new Map();
 function snapWater(x,y){
@@ -613,6 +624,19 @@ function buildRoute(pts, mode){
     }
     rem.delete(bk);
   }
+  // flag "there-and-back" legs — the next leg heads nearly opposite AND retraces the current one (out to
+  // a dead-end pocket and back over the same corridor) — so render bows them apart instead of overlapping.
+  for(let i=0;i<legs.length-1;i++){
+    const a=legs[i], b=legs[i+1];
+    if(Math.abs(a.to[0]-b.from[0])>=1 || Math.abs(a.to[1]-b.from[1])>=1) continue;   // must share the mid point
+    let d=Math.abs(Math.atan2(a.to[1]-a.from[1],a.to[0]-a.from[0]) - Math.atan2(b.to[1]-b.from[1],b.to[0]-b.from[0]));
+    if(d>Math.PI) d=2*Math.PI-d;
+    if(d<=2.7) continue;                                                             // and head nearly opposite (>~155°)
+    const dx=a.to[0]-a.from[0], dy=a.to[1]-a.from[1], L2=dx*dx+dy*dy||1;             // and b's far end must land back along a (real overlap)
+    const t=((b.to[0]-a.from[0])*dx+(b.to[1]-a.from[1])*dy)/L2;
+    const perp=Math.abs((b.to[0]-a.from[0])*dy-(b.to[1]-a.from[1])*dx)/Math.sqrt(L2);
+    if(t>0.05 && t<0.95 && perp<15){ a.bow=true; b.bow=true; }
+  }
   return { legs, order, isolated };
 }
 // parallel-offset a path (game coords) by `dist` tiles, tapering to 0 at both ends so the line
@@ -680,7 +704,8 @@ function render(){
       const isDrift = l.kind === 'duck' || l.kind === 'weather';
       const driftCol = l.kind === 'weather' ? '#9b5cf6' : '#12d0e0'; // weather=violet, duck=cyan
       const col = isDrift ? driftCol : oceanColor(l.ocean);
-      const raw = waterPath(l.from[0],l.from[1], l.to[0],l.to[1]);
+      let raw = waterPath(l.from[0],l.from[1], l.to[0],l.to[1]);
+      if(l.bow && raw && raw.length===2){ const m=[(raw[0][0]+raw[1][0])/2,(raw[0][1]+raw[1][1])/2]; raw=[raw[0],m,raw[1]]; }  // straight there-and-back leg: add a midpoint so offsetPath bows it off its overlapping partner
       if(!raw){
         // no navigable water route (separate/enclosed seas): faint grey "relocate" hairline,
         // never a bold line implying you sail across land
