@@ -574,13 +574,15 @@ function buildRoute(pts, mode){
     }
     let bk=null, bd=Infinity;
     for(const k of cand) for(const p of bySea.get(k)){ const e=entry(p); const d=Math.hypot(e[0]-cx,e[1]-cy); if(d<bd){bd=d;bk=k;} }
-    // split this sea's tasks by water body; route the biggest, flag the rest as isolated ("?")
+    // route the sea's main water body, then tack on tasks in enclosed pockets (e.g. a river basin the
+    // ocean can't reach): they get a number and a grey dashed "relocate" hop instead of a "?" / no route.
     const groups = new Map();
     for(const t of bySea.get(bk)){ const c=taskComp(t); if(!groups.has(c)) groups.set(c,[]); groups.get(c).push(t); }
     let mainC=null, mainN=-1;
     for(const [c,arr] of groups){ if(arr.length>mainN){ mainN=arr.length; mainC=c; } }
-    for(const [c,arr] of groups){ if(c!==mainC) for(const t of arr) isolated.add(t[0]); }
-    const ord = twoOpt(nnOrder(groups.get(mainC), cx, cy), cx, cy);
+    let ord = twoOpt(nnOrder(groups.get(mainC), cx, cy), cx, cy);
+    const extra = []; for(const [c,arr] of groups){ if(c!==mainC) extra.push(...arr); }
+    if(extra.length){ const e=exitPt(ord[ord.length-1]); ord = ord.concat(nnOrder(extra, e[0], e[1])); }
     const absorbed = new Set();
     let first = true;
     for(let idx=0; idx<ord.length; idx++){
