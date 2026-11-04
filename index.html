@@ -242,7 +242,7 @@ function gearBlocked(id){
 }
 
 // completed set (seeded from Beebeelex's live WikiSync: tasks 0,1,11,28)
-const DONE_KEY = 'beebeelex-done-v5';
+const DONE_KEY = 'beebeelex-done-v6';   // v6: retire the old SEED-polluted store so existing browsers start clean too (re-sync via WikiSync restores real progress)
 let done = new Set();   // default: nothing done, everything shown — personalized only once the user sets a level or syncs
 try { const raw = localStorage.getItem(DONE_KEY); if(raw) done = new Set(JSON.parse(raw)); }
 catch(_){ done = new Set(); }
