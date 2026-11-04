@@ -987,14 +987,17 @@ function walkTo(seq){
   const prev = taskAtSeq(walkSeq-1);
   // Centre the current task on screen; zoom to include its neighbours when they're near, but never
   // zoom way out just because the next task is across the map — keep the active task big and centred.
-  const near = [prev ? [prev[3],prev[4]] : [START.x,START.y]];
-  if(next) near.push([next[3],next[4]]);
-  // zoom from the NEAREST neighbour only, so a task across the map can't drag the view out; then
-  // centre on the current task so it always sits in the middle of the screen.
-  const nd = Math.min(...near.map(p=>Math.hypot(p[0]-cur[3], p[1]-cur[4]))) || 30;
-  const box = L.latLngBounds(toLatLng(cur[3]-nd, cur[4]-nd), toLatLng(cur[3]+nd, cur[4]+nd));
-  const z = Math.max(4, Math.min(5, map.getBoundsZoom(box)));
-  map.setView(toLatLng(cur[3],cur[4]), z, {animate:true});
+  // Fit the previous + current + next tasks, but pull a far-off neighbour in to a cap so one task
+  // across the map can't blow the zoom out, and build the box symmetric around the current task so
+  // it stays centred. Then set a close-capped zoom — no hard floor, so moderate spans zoom out to fit.
+  const CAP = 100;   // game tiles: a neighbour further than this is treated as this far, for framing
+  const capPt = p => { const dx=p[0]-cur[3], dy=p[1]-cur[4], d=Math.hypot(dx,dy); return (d<=CAP||!d) ? p : [cur[3]+dx/d*CAP, cur[4]+dy/d*CAP]; };
+  const near = [ capPt(prev ? [prev[3],prev[4]] : [START.x,START.y]) ];
+  if(next) near.push(capPt([next[3],next[4]]));
+  const hx = Math.max(20, ...near.map(p=>Math.abs(p[0]-cur[3])));
+  const hy = Math.max(20, ...near.map(p=>Math.abs(p[1]-cur[4])));
+  // box is symmetric around the current task, so fitBounds keeps it centred while fitting the neighbours
+  map.fitBounds(L.latLngBounds(toLatLng(cur[3]-hx, cur[4]-hy), toLatLng(cur[3]+hx, cur[4]+hy)).pad(0.08), {maxZoom:5, animate:true});
   walkBar.hidden = false;
   document.getElementById('walkPrev').disabled = walkSeq<=1;
   document.getElementById('walkLabel').innerHTML =
