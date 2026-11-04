@@ -216,6 +216,10 @@ const ICONS = JSON.parse(document.getElementById('icondata').textContent);
 const GEAR = JSON.parse(document.getElementById('geardata').textContent);
 const ICON_KEY = { GENERIC:'generic', SPYGLASS:'spyglass', CURRENT_DUCK:'current', DRINK_CRATE:'crate', MERMAID_GUIDE:'diving', WEATHER:'weather' };
 const data = tasks.filter(t => t[4] < 7000);
+// fold ocean-less tasks (e.g. the lone Southern Expanse weather task, ocean -1) into Miscellaneous,
+// so every task belongs to a toggleable ocean and nothing is permanently unfilterable
+const MISC_OCEAN = oceans.findIndex(o => o[1] === 'Miscellaneous');
+if(MISC_OCEAN >= 0) for(const t of data){ if(t[7] < 0 || t[7] >= oceans.length) t[7] = MISC_OCEAN; }
 const DIVING = types.indexOf('MERMAID_GUIDE'), WEATHER = types.indexOf('WEATHER'), DUCK = types.indexOf('CURRENT_DUCK');
 let START = {x:3030, y:3197, name:'Port Sarim'};
 let startPick = false; // when armed, the next task click sets the route start
@@ -429,12 +433,19 @@ function chaikin(pts, iters){
 }
 // water route between two game points, smoothed, or null if not connected by navigable water.
 function waterPath(ax,ay,bx,by){
+  const D=Math.hypot(bx-ax,by-ay);
+  if(D<=24) return [[ax,ay],[bx,by]];   // adjacent tasks (e.g. two charts on the same pier): a straight hop reads cleaner than looping around the dock
   const sa=snapWater(ax,ay), sb=snapWater(bx,by);
   if(!sa||!sb) return null;
   const grid=astar(sa[0],sa[1],sb[0],sb[1]);
   if(!grid) return null;
   let path=[[ax,ay], ...grid, [bx,by]];
   path=stringPull(path);   // remove grid juts, stay in water
+  // de-hook on-land markers: a task on a rock/dock snaps to off-marker water, so the route can weave
+  // around the obstacle to reach it — collapse that short weave into a straight docking line
+  const onLand=(x,y)=>{ const c=toCell(x,y); return !isWaterCell(c[0],c[1]); };
+  if(onLand(bx,by)){ let j=path.length-2; while(j>0 && Math.hypot(path[j][0]-bx,path[j][1]-by)<=12) j--; path=[...path.slice(0,j+1),[bx,by]]; }
+  if(onLand(ax,ay)){ let i=1; while(i<path.length-1 && Math.hypot(path[i][0]-ax,path[i][1]-ay)<=12) i++; path=[[ax,ay],...path.slice(i)]; }
   path=chaikin(path, 2);   // round the remaining corners
   return path;
 }
