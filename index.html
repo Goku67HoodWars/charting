@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>window.L || document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>')</script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.min.js"></script>
 <style>
 :root{
@@ -781,8 +782,9 @@ document.querySelectorAll('.typechip').forEach(chip => chip.addEventListener('cl
   const i=+chip.dataset.ti; typeOn[i]=!typeOn[i]; chip.classList.toggle('on', typeOn[i]); render();
 }));
 
-for(const el of [lvl, togPath, hideDone, ...document.querySelectorAll('.gear')]){
-  el.addEventListener('input', render); el.addEventListener('change', render);
+lvl.addEventListener('input', render);   // live as you type the level
+for(const el of [togPath, hideDone, ...document.querySelectorAll('.gear')]){
+  el.addEventListener('change', render);   // checkboxes fire input+change per click — bind one to avoid a double render
 }
 function confirmBox(title, msg, okLabel){
   return new Promise(resolve=>{
@@ -827,7 +829,7 @@ function applySync(j, uname){
   done = new Set(ids); saveDone();
   const lv = j && j.levels;
   const sail = lv && lv.Sailing;
-  if(sail) lvl.value = sail;                       // auto-fill their Sailing level
+  if(sail) lvl.value = Math.max(1, Math.min(99, Math.floor(+sail)||1));   // auto-fill their Sailing level, clamped to the 1–99 input range
   const name = (j && j.username) || uname || 'player';
   const total = lv ? Object.values(lv).reduce((a,b)=>a+(+b||0),0) : null;
   render();
@@ -845,16 +847,21 @@ async function fetchSync(u){
   return null;
 }
 function tourAfterSync(){ if(typeof tourAwaitLookup!=='undefined' && tourAwaitLookup){ tourAwaitLookup=false; advanceTour(); } }  // tour gate: proceed once synced
+let looking = false;
 async function doLookup(){
+  if(looking) return;                             // ignore a second click while a lookup is already in flight (else two paste modals stack)
   const u = wsUser.value.trim();
   if(!u){ wsStatus.textContent = 'Enter a name first.'; return; }
+  looking = true;
   wsStatus.textContent = `Looking up ${u}…`;
-  const j = await fetchSync(u);
-  if(j && (Array.isArray(j)?j:j.sea_charting)){ applySync(j, u); tourAfterSync(); }
-  else {                                          // proxy blocked (wiki 403s our server) — fall back to manual paste
-    wsStatus.innerHTML = `Auto-lookup is blocked by the wiki — opening manual import…`;
-    pasteImport(u);
-  }
+  try {
+    const j = await fetchSync(u);
+    if(j && (Array.isArray(j)?j:j.sea_charting)){ applySync(j, u); tourAfterSync(); }
+    else {                                        // proxy blocked (wiki 403s our server) — fall back to manual paste
+      wsStatus.innerHTML = `Auto-lookup is blocked by the wiki — opening manual import…`;
+      pasteImport(u);
+    }
+  } finally { looking = false; }
 }
 // Manual import: the wiki lets a real browser read WikiSync but blocks our server, so the user opens
 // their own WikiSync page and pastes the JSON. Feeds the same applySync() the live lookup uses.
@@ -993,6 +1000,7 @@ const walkMax = () => { let m=0; for(const n of routeOrder.values()) if(n>m) m=n
 const taskAtSeq = seq => { for(const [id,n] of routeOrder) if(n===seq) return routeById.get(id); return null; };
 function startWalk(){
   if(typeof tourPop!=='undefined' && tourPop) endTour();   // tour and Play are mutually exclusive
+  if(startPick){ startPick = false; updateStartUI(); }     // disarm Set-start so a later task click marks done, not re-base the route
   if(!togPath.checked){ togPath.checked = true; render(); }
   const M = walkMax(); if(M===0) return;          // nothing routed
   let s=1; for(let n=1;n<=M;n++){ const t=taskAtSeq(n); if(t && !done.has(t[0])){ s=n; break; } }   // begin at the first task still to do
@@ -1007,23 +1015,9 @@ function refreshWalkBar(){   // update the bar label + prev-disabled for the cur
     `<span class="wl-main"><b>${walkSeq}</b> / ${walkMax()} · ${cur[1]}</span>`+
     `<span class="wl-sub">lvl ${cur[5]} · ${types[cur[2]].toLowerCase().replace(/_/g,' ')}${done.has(cur[0])?' · ✓ done':''}</span>`;
 }
-function reconcileWalk(){   // render() calls this after a route rebuild: keep Play pinned to its glowing task
-  const n = (walkCurId!=null) ? routeOrder.get(walkCurId) : null;
-  if(n==null){ resetWalkState(); return; }   // Route off, or the focused task filtered out → stop (no re-render; this render finishes glow-free)
-  walkSeq = n;
-  const nx = taskAtSeq(n+1); walkNextId = nx ? nx[0] : null;
-  refreshWalkBar();
-}
-function walkTo(seq){
-  const M = walkMax(); if(M===0){ endWalk(); return; }
-  walkSeq = Math.max(1, Math.min(M, seq));
-  const cur = taskAtSeq(walkSeq); if(!cur){ endWalk(); return; }
-  const next = taskAtSeq(walkSeq+1);
-  walkCurId = cur[0]; walkNextId = next ? next[0] : null;
-  render();                                        // redraw so the glow follows the current task + its legs
-  const prev = taskAtSeq(walkSeq-1);
-  // Centre the current task; fit prev + current + next (and, for a drift, its drift-end), pulling a
-  // far-off neighbour in to a cap so a task across the map can't blow the zoom out.
+function frameWalk(){   // centre + zoom the camera on the current task, fitting its (capped) neighbours
+  const cur = taskAtSeq(walkSeq); if(!cur) return;
+  const next = taskAtSeq(walkSeq+1), prev = taskAtSeq(walkSeq-1);
   const CAP = 100;   // game tiles: a neighbour further than this is treated as this far, for framing
   const capPt = p => { const dx=p[0]-cur[3], dy=p[1]-cur[4], d=Math.hypot(dx,dy); return (d<=CAP||!d) ? p : [cur[3]+dx/d*CAP, cur[4]+dy/d*CAP]; };
   const near = [ capPt(prev ? [prev[3],prev[4]] : [START.x,START.y]) ];
@@ -1033,7 +1027,24 @@ function walkTo(seq){
   const hy = Math.max(20, ...near.map(p=>Math.abs(p[1]-cur[4])));
   // box is symmetric around the current task, so fitBounds keeps it centred while fitting the neighbours
   map.fitBounds(L.latLngBounds(toLatLng(cur[3]-hx, cur[4]-hy), toLatLng(cur[3]+hx, cur[4]+hy)).pad(0.08), {maxZoom:4, animate:true});
+}
+function reconcileWalk(){   // render() calls this after a route rebuild: keep Play pinned to its glowing task
+  const n = (walkCurId!=null) ? routeOrder.get(walkCurId) : null;
+  if(n==null){ resetWalkState(); return; }   // Route off, or the focused task filtered out → stop (no re-render; this render finishes glow-free)
+  const nx = taskAtSeq(n+1), newNext = nx ? nx[0] : null;
+  const moved = (n!==walkSeq) || (newNext!==walkNextId);   // the current task's number or next neighbour shifted
+  walkSeq = n; walkNextId = newNext;
   refreshWalkBar();
+  if(moved) frameWalk();   // re-frame only when the route context moved (mode switch / set-start / renumber), not on a plain mark-done
+}
+function walkTo(seq){
+  const M = walkMax(); if(M===0){ endWalk(); return; }
+  walkSeq = Math.max(1, Math.min(M, seq));
+  const cur = taskAtSeq(walkSeq); if(!cur){ endWalk(); return; }
+  const next = taskAtSeq(walkSeq+1);
+  walkCurId = cur[0]; walkNextId = next ? next[0] : null;
+  render();        // reconcileWalk re-pins + refreshes the bar (seq unchanged here → it won't double-frame)
+  frameWalk();     // explicit frame for a user ◀/▶ step
 }
 function walkAdvance(){   // ▶ / → : mark the CURRENT (glowing) task done, then move on
   if(walkCurId!=null && !done.has(walkCurId)){ done.add(walkCurId); saveDone(); }
