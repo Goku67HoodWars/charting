@@ -380,7 +380,7 @@ function astar(ax,ay,bx,by){
     const cx=cur%GW, cy=(cur/GW)|0, cg=gScore[cur];
     for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
       if(!dx&&!dy)continue; const nx=cx+dx, ny=cy+dy;
-      if(!isWaterCell(nx,ny))continue;
+      if(!inGrid(nx,ny)||!isWaterCell(nx,ny))continue;   // map edge is a wall for routing: off-grid "open ocean" cells have OOB typed-array indices, so their seen-marks silently no-op and A* re-pushes them until it burns the 200k cap
       if(dx&&dy&&(!isWaterCell(cx+dx,cy)||!isWaterCell(cx,cy+dy)))continue; // no corner cut
       const ni=cellIdx(nx,ny), step=(dx&&dy)?1.4142:1, ng=cg+step;
       if(seen[ni]!==S||ng<gScore[ni]){ seen[ni]=S; gScore[ni]=ng; came[ni]=cur; push(ng+h(ni),ni); }
@@ -570,7 +570,7 @@ function buildRoute(pts, mode){
         }
         cor.sort((a,b)=>a.t-b.t);
         let px=s[0], py=s[1];
-        for(const c of cor){ order.set(c.q[0], ++seq); if(!tDone && !done.has(c.q[0])) legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe}); px=c.qe[0]; py=c.qe[1]; }
+        for(const c of cor){ order.set(c.q[0], ++seq); if(!done.has(c.q[0])) legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe}); px=c.qe[0]; py=c.qe[1]; }  // gate on q's OWN done-state, not the drift's — else completing a duck orphans the tasks riding its current
         if(!tDone) legs.push({kind:dk, ocean:oi, from:[px,py], to:en});
         cx=en[0]; cy=en[1];
       } else {
@@ -779,7 +779,7 @@ updateStartUI();
 const wsUser = document.getElementById('wsUser'), wsStatus = document.getElementById('wsStatus');
 const subEl = document.querySelector('.titlewrap .sub');
 function applySync(j, uname){
-  const ids = Array.isArray(j) ? j : (j && j.sea_charting) || null;
+  const ids = Array.isArray(j) ? j : (j && Array.isArray(j.sea_charting) ? j.sea_charting : null);
   if(!ids) { wsStatus.textContent = 'No sea charting data for that name.'; return false; }
   done = new Set(ids); saveDone();
   const lv = j && j.levels;
@@ -788,7 +788,7 @@ function applySync(j, uname){
   const name = (j && j.username) || uname || 'player';
   const total = lv ? Object.values(lv).reduce((a,b)=>a+(+b||0),0) : null;
   render();
-  wsStatus.innerHTML = `✓ <b>${name}</b>${sail?` · Sailing <b>${sail}</b>`:''} · ${done.size} charts done`;
+  wsStatus.textContent = `✓ ${name}${sail?` · Sailing ${sail}`:''} · ${done.size} charts done`;   // textContent: pasted username/level are untrusted, never innerHTML
   subEl.textContent = `${name}${sail?` · Sailing ${sail}`:''}${total?` · total level ${total.toLocaleString()}`:''}`;
   return true;
 }
@@ -838,7 +838,7 @@ function pasteImport(uname){
   back.querySelector('.danger').onclick = ()=>{
     let j; try{ j = JSON.parse(ta.value.trim()); }
     catch(_){ err.textContent = 'That isn’t valid WikiSync text — copy the whole page (Ctrl+A, Ctrl+C).'; err.hidden = false; return; }
-    if(!(Array.isArray(j) ? j : (j && j.sea_charting))){ err.textContent = 'No sea charting data in that text. The account must have uploaded via the RuneLite WikiSync plugin.'; err.hidden = false; return; }
+    if(!(Array.isArray(j) ? j : (j && Array.isArray(j.sea_charting) && j.sea_charting))){ err.textContent = 'No sea charting data in that text. The account must have uploaded via the RuneLite WikiSync plugin.'; err.hidden = false; return; }
     applySync(j, uname); close(); tourAfterSync();
   };
   setTimeout(()=>ta.focus(), 0);

@@ -2,12 +2,14 @@
 // WikiSync only allows cross-origin reads from *.runescape.wiki, and Cloudflare blocks non-browser
 // user-agents — this runs server-side with a browser UA and re-serves the JSON with a CORS header.
 export default async function handler(req, res) {
-  const u = String(req.query.u || "").trim();
   res.setHeader("Access-Control-Allow-Origin", "*");
+  if (req.method !== "GET") { res.status(405).end(); return; }
+  const u = String(req.query.u || "").trim();
   if (!u) {
     res.status(400).json({ error: "missing username" });
     return;
   }
+  if (u.length > 40) { res.status(400).json({ error: "username too long" }); return; }  // WikiSync names are ≤12 chars; cap blocks open-enumeration abuse of the proxy
   const url =
     "https://sync.runescape.wiki/runelite/player/" +
     encodeURIComponent(u) +
@@ -25,6 +27,6 @@ export default async function handler(req, res) {
     if (r.ok) res.setHeader("Cache-Control", "public, max-age=60");
     res.status(r.status).send(body);
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(502).json({ error: "upstream fetch failed" });
   }
 }
