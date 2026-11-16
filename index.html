@@ -95,6 +95,7 @@ body{display:flex; flex-direction:column}
 .taskicon img{width:80%; height:80%; image-rendering:pixelated}
 .seqnum{position:absolute; top:-7px; right:-7px; min-width:15px; height:15px; padding:0 2px; box-sizing:border-box; background:#1b1b1b; color:#fff; border:1.5px solid #fff; border-radius:8px; font:700 10px/12px ui-sans-serif,system-ui,sans-serif; text-align:center; font-variant-numeric:tabular-nums}
 .seqnum.iso{background:#8a6d3b; border-color:#fff}
+.drinkwarn{position:absolute; bottom:-6px; left:-6px; min-width:15px; height:15px; padding:0 3px; box-sizing:border-box; background:#c0392b; color:#fff; border:1.5px solid #fff; border-radius:8px; font:800 11px/12px ui-sans-serif,system-ui,sans-serif; text-align:center}
 .leaflet-container{font-family:inherit}
 .unlockpanel{background:var(--panel); border:1px solid var(--rule); border-radius:4px; padding:8px 10px; box-shadow:0 1px 4px rgba(0,0,0,.3); font-size:13px; min-width:150px; max-width:72vw}
 .unlockpanel .uptitle{font-weight:700; letter-spacing:.03em; margin-bottom:5px; text-transform:uppercase; font-size:11px; color:var(--muted); cursor:pointer; user-select:none}
@@ -234,6 +235,13 @@ body{display:flex; flex-direction:column}
 <script>
 const {types, seas, oceans, tasks} = JSON.parse(document.getElementById('data').textContent);
 const ICONS = JSON.parse(document.getElementById('icondata').textContent);
+// Drink-crate tasks (type 3): is sipping the bottle harmless? unsafe = damages you, costs you something, or displaces you / destroys cargo; safe = temporary stat-shuffle or cosmetic. Effects from the OSRS wiki Sealed-crate page (still in flux for Sailing), keyed by task id — flip a call here if the wiki settles differently.
+const DRINK = {   // [safe?, effect]
+  38:[1,'+Strength, −Attack (temporary)'], 40:[1,'+Farming, −Agility (temporary)'],
+  66:[1,'summons dwarves who hand you free food'], 278:[1,'random cosmetic morph'], 292:[1,'cosmetic fireworks'],
+  39:[0,'drains combat stats + 5 damage'], 61:[0,'knockback/stun — can knock you overboard (fatal)'],
+  119:[0,'removes 100 coins'], 166:[0,'blackout + teleport, destroys task cargo'],
+};
 const GEAR = JSON.parse(document.getElementById('geardata').textContent);
 const ICON_KEY = { GENERIC:'generic', SPYGLASS:'spyglass', CURRENT_DUCK:'current', DRINK_CRATE:'crate', MERMAID_GUIDE:'diving', WEATHER:'weather' };
 const data = tasks.filter(t => t[4] < 7000);
@@ -757,13 +765,16 @@ function render(){
     const n = isDone ? null : order.get(p[0]);
     const iso = !isDone && !n && isolated.has(p[0]);   // reachable-by-water check failed → "?"
     const badge = n ? `<span class="seqnum">${n}</span>` : (iso ? `<span class="seqnum iso" title="No water route found to this task">?</span>` : '');
+    const drink = DRINK[p[0]];   // drink crate? [safe?, effect] — unsafe ones get a red ! badge
+    const warn = (drink && !drink[0]) ? `<span class="drinkwarn" title="unsafe to drink">!</span>` : '';
     const icon = L.divIcon({
       className: '', iconSize:[30,30], iconAnchor:[15,15],
-      html: `<div class="taskicon${isDone?' done':''}${focus?' walkfocus':''}" style="width:30px;height:30px;border-color:${isDone?'#1e7a3a':ring}"><img src="${ICONS[key]}" alt="">${badge}</div>`
+      html: `<div class="taskicon${isDone?' done':''}${focus?' walkfocus':''}" style="width:30px;height:30px;border-color:${isDone?'#1e7a3a':ring}"><img src="${ICONS[key]}" alt="">${badge}${warn}</div>`
     });
     const m = L.marker(toLatLng(p[3], p[4]), {icon}).addTo(markerLayer);
     const ocName = (p[7]>=0 ? oceans[p[7]][1] : '?');
-    m.bindTooltip(`${p[1]} · ${ocName} › ${seas[p[6]]||'?'} · ${types[p[2]].toLowerCase().replace('_',' ')} · lvl ${p[5]} · (${p[3]}, ${p[4]})${isDone?' · ✓done':''}`, {direction:'top'});
+    const drinkNote = drink ? (drink[0] ? ' · ✅ safe to drink' : ` · ⚠️ UNSAFE: ${drink[1]}`) : '';
+    m.bindTooltip(`${p[1]} · ${ocName} › ${seas[p[6]]||'?'} · ${types[p[2]].toLowerCase().replace('_',' ')} · lvl ${p[5]} · (${p[3]}, ${p[4]})${isDone?' · ✓done':''}${drinkNote}`, {direction:'top'});
     m.on('click', () => {
       if(startPick){ START = {x:p[3], y:p[4], name:p[1]}; startPick=false; updateStartUI(); render(); return; }
       if(done.has(p[0])) done.delete(p[0]); else done.add(p[0]); saveDone(); render();
