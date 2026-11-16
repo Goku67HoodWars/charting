@@ -684,11 +684,10 @@ let routeOrder = new Map(), routeById = new Map();   // last computed route (seq
 let walkSeq = 0, walkCurId = null, walkNextId = null;   // Play walkthrough state (0/null = inactive)
 function render(){
   const L_ = Math.max(1, Math.min(99, +lvl.value || 1));
-  // `shown` = everything drawn on the map; `visible` = the routable subset (completed tasks are
-  // drawn green/faded but never routed). "Hide done" fully removes completed from the map.
-  // `routable` = everything matching the filters, IGNORING done. It's the stable basis for the
-  // route order, so each task keeps its number — completing one (or toggling Hide done) never
-  // renumbers the rest. Only the start or the filters (level / type / ocean / unlocks) reshuffle it.
+  // `routable` = everything matching the filters, IGNORING done — the route basis when Hide done is
+  // OFF, so completing a task only dims its leg and never renumbers the rest (stable numbers).
+  // With Hide done ON the route is built over `shown` (not-done only) instead, so the path skips
+  // completed tasks entirely and the numbers cover just what's left to chart.
   const routable = data.filter(t =>
     t[5] <= L_
     && typeOn[t[2]]
@@ -705,7 +704,8 @@ function render(){
   // single connected route over not-done tasks; duck legs (start→drift-end) are threaded in blue
   let legs = [], order = new Map(), isolated = new Set();
   if(togPath.checked){
-    const r = buildRoute(routable, routeMode.value); legs = r.legs; order = r.order; isolated = r.isolated;
+    const basis = hideDone.checked ? shown : routable;   // Hide done → plan over only the not-done tasks so the path never threads through completed ones; otherwise route over all and dim the done legs
+    const r = buildRoute(basis, routeMode.value); legs = r.legs; order = r.order; isolated = r.isolated;
   }
   routeOrder = order; routeById = new Map(routable.map(t=>[t[0],t]));   // expose the route to Play (empty when Route is off)
   if(walkSeq) reconcileWalk();   // re-pin Play to its glowing task after a rebuild; stops cleanly if that task is gone or Route is off
