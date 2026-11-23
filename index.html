@@ -718,15 +718,22 @@ function render(){
       let raw = waterPath(l.from[0],l.from[1], l.to[0],l.to[1]);
       if(l.bow && raw && raw.length===2){ const m=[(raw[0][0]+raw[1][0])/2,(raw[0][1]+raw[1][1])/2]; raw=[raw[0],m,raw[1]]; }  // straight there-and-back leg: add a midpoint so offsetPath bows it off its overlapping partner
       if(!raw){
-        // no navigable water route (separate/enclosed seas): faint grey "relocate" hairline,
-        // never a bold line implying you sail across land
-        if(walkCurId!=null && (l.toId===walkCurId || l.toId===walkNextId)){   // Play still glows the relocate hop to/from the focused task
-          L.polyline([toLatLng(l.from[0],l.from[1]), toLatLng(l.to[0],l.to[1])], { color:'#ffd54a', weight:9, opacity:0.5, lineCap:'round' }).addTo(routeLayer);
+        if(isDrift){
+          // the water mask can't resolve a route here (unmapped/enclosed water), but a duck/weather
+          // drift is the CURRENT carrying it, not you sailing a hull — draw the straight drift arrow
+          // so its direction is still visible instead of greying it out.
+          raw = [[l.from[0],l.from[1]],[l.to[0],l.to[1]]];
+        } else {
+          // non-drift leg with no navigable water route: faint grey "relocate" hairline,
+          // never a bold line implying you sail across land
+          if(walkCurId!=null && (l.toId===walkCurId || l.toId===walkNextId)){   // Play still glows the relocate hop to/from the focused task
+            L.polyline([toLatLng(l.from[0],l.from[1]), toLatLng(l.to[0],l.to[1])], { color:'#ffd54a', weight:9, opacity:0.5, lineCap:'round' }).addTo(routeLayer);
+          }
+          L.polyline([toLatLng(l.from[0],l.from[1]), toLatLng(l.to[0],l.to[1])], {
+            color:'#9a9a9a', weight:1.5, opacity:l.done?0.2:0.5, dashArray:'2 7'
+          }).addTo(routeLayer).bindTooltip('relocate (no direct water route)', {sticky:true});
+          continue;
         }
-        L.polyline([toLatLng(l.from[0],l.from[1]), toLatLng(l.to[0],l.to[1])], {
-          color:'#9a9a9a', weight:1.5, opacity:l.done?0.2:0.5, dashArray:'2 7'
-        }).addTo(routeLayer).bindTooltip('relocate (no direct water route)', {sticky:true});
-        continue;
       }
       // offset the geometry itself so the line AND its arrows stay together. Drifts go to the
       // opposite side from travel/hop legs, so a drift overlapping a travel line never stacks.
