@@ -96,6 +96,11 @@ body{display:flex; flex-direction:column}
 .seqnum{position:absolute; top:-7px; right:-7px; min-width:15px; height:15px; padding:0 2px; box-sizing:border-box; background:#1b1b1b; color:#fff; border:1.5px solid #fff; border-radius:8px; font:700 10px/12px ui-sans-serif,system-ui,sans-serif; text-align:center; font-variant-numeric:tabular-nums}
 .seqnum.iso{background:#8a6d3b; border-color:#fff}
 .drinkwarn{position:absolute; bottom:-6px; left:-6px; min-width:15px; height:15px; padding:0 3px; box-sizing:border-box; background:#c0392b; color:#fff; border:1.5px solid #fff; border-radius:8px; font:800 11px/12px ui-sans-serif,system-ui,sans-serif; text-align:center}
+.dockpin{display:inline-flex; align-items:center; gap:2px; transform:translate(-50%,-50%); white-space:nowrap; padding:2px 5px; border-radius:9px; border:1.5px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.45); color:#fff; font:700 10px/1 ui-sans-serif,system-ui,sans-serif}
+.dockpin.port{background:#2a6f9e}   /* dockable mooring point (blue) */
+.dockpin.sw{background:#8a5a2b}      /* shipwright / ship-reclaim point (brown) */
+.dockpin.locked{opacity:.4}          /* dock level above your Sailing level */
+.dockpin b{font-weight:800}
 .leaflet-container{font-family:inherit}
 .unlockpanel{background:var(--panel); border:1px solid var(--rule); border-radius:4px; padding:8px 10px; box-shadow:0 1px 4px rgba(0,0,0,.3); font-size:13px; min-width:150px; max-width:72vw}
 .unlockpanel .uptitle{font-weight:700; letter-spacing:.03em; margin-bottom:5px; text-transform:uppercase; font-size:11px; color:var(--muted); cursor:pointer; user-select:none}
@@ -217,6 +222,10 @@ body{display:flex; flex-direction:column}
       <button id="walkBtn" type="button" title="Step through the route task by task">▶ Play</button>
     </div>
     <div class="grp">
+      <label class="chk" title="Mooring points you can dock at, with the Sailing level required"><input type="checkbox" id="togPorts"> Ports</label>
+      <label class="chk" title="Shipwright locations — where you reclaim/repair your ship"><input type="checkbox" id="togShip"> Shipwrights</label>
+    </div>
+    <div class="grp">
       <button id="setStart" type="button">Set start</button>
       <span class="hint" id="startLabel"></span>
     </div>
@@ -242,6 +251,71 @@ const DRINK = {   // [safe?, effect]
   39:[0,'drains combat stats + 5 damage'], 61:[0,'knockback/stun — can knock you overboard (fatal)'],
   119:[0,'removes 100 coins'], 166:[0,'blackout + teleport, destroys task cargo'],
 };
+// Ports / mooring points (coords + dock level pulled from the OSRS wiki Mooring-point & Shipwright map pins).
+// l = Sailing level to dock, r = extra requirement, sw:1 = has a shipwright (ship-reclaim/repair) point,
+// np:1 = shipwright-only (the Shipyard, not a dockable mooring port). x=east, y=north.
+const DOCKS = [
+  {n:"Port Sarim",x:3051,y:3195,l:1,sw:1},
+  {n:"The Pandemonium",x:3070,y:2989,l:1,sw:1},
+  {n:"Land's End",x:1507,y:3405,l:5,r:"Visited Kourend",sw:1},
+  {n:"Hosidius",x:1726,y:3454,l:5,r:"Visited Kourend"},
+  {n:"Musa Point",x:2961,y:3148,l:10,sw:1},
+  {n:"Port Piscarilius",x:1845,y:3689,l:15,r:"Visited Kourend",sw:1},
+  {n:"Rimmington",x:2906,y:3227,l:18},
+  {n:"Catherby",x:2796,y:3414,l:20,sw:1},
+  {n:"Brimhaven",x:2758,y:3232,l:25,sw:1},
+  {n:"Ardougne",x:2671,y:3267,l:28},
+  {n:"Port Khazard",x:2686,y:3164,l:30,sw:1},
+  {n:"Witchaven",x:2747,y:3307,l:34},
+  {n:"Entrana",x:2879,y:3338,l:36,r:"No prohibited items"},
+  {n:"Civitas illa Fortis",x:1775,y:3144,l:38,r:"Children of the Sun + Visited Varlamore",sw:1},
+  {n:"Corsair Cove",x:2580,y:2846,l:40,r:"The Corsair Curse",sw:1},
+  {n:"Dognose Island",x:3061,y:2633,l:40},
+  {n:"Cairn Isle",x:2750,y:2954,l:42},
+  {n:"Chinchompa Island",x:1893,y:3431,l:42},
+  {n:"Sunset Coast",x:1512,y:2976,l:44,r:"Children of the Sun + Visited Varlamore"},
+  {n:"Remote Island",x:2972,y:2604,l:45},
+  {n:"The Summer Shore",x:3174,y:2369,l:45,r:"Partial: Troubled Tortugans"},
+  {n:"The Little Pearl",x:3354,y:2218,l:45,r:"Partial: Troubled Tortugans"},
+  {n:"Aldarin",x:1452,y:2972,l:46,r:"Children of the Sun + Visited Varlamore",sw:1},
+  {n:"Vatrachos Island",x:1872,y:2986,l:46,r:"Children of the Sun"},
+  {n:"The Onyx Crest",x:2997,y:2290,l:47},
+  {n:"Ruins of Unkah",x:3144,y:2827,l:48},
+  {n:"Shimmering Atoll",x:1557,y:2772,l:49},
+  {n:"Void Knights' Outpost",x:2651,y:2680,l:50},
+  {n:"Port Roberts",x:1861,y:3309,l:50,sw:1},
+  {n:"Anglers' Retreat",x:2466,y:2722,l:51},
+  {n:"Red Rock",x:2809,y:2511,l:52,r:"Partial: The Red Reef",sw:1},
+  {n:"Minotaurs' Rest",x:1958,y:3118,l:54,r:"Children of the Sun"},
+  {n:"Isle of Souls",x:2283,y:2824,l:55},
+  {n:"Isle of Bones",x:2533,y:2532,l:56},
+  {n:"Laguna Aurorae",x:1202,y:2734,l:58},
+  {n:"Charred Island",x:2660,y:2396,l:60},
+  {n:"Tear of the Soul",x:2318,y:2775,l:61},
+  {n:"Rellekka",x:2630,y:3707,l:62,r:"The Fremennik Trials",sw:1},
+  {n:"Wyrmscraig",x:2568,y:2298,l:62},
+  {n:"Wintumber Island",x:2057,y:2607,l:63},
+  {n:"The Crown Jewel",x:1765,y:2660,l:64},
+  {n:"Etceteria",x:2613,y:3842,l:65,r:"Royal Trouble"},
+  {n:"Port Tyras",x:2144,y:3122,l:66,r:"Regicide"},
+  {n:"Lledrith Island",x:2097,y:3189,l:66},
+  {n:"Deepfin Point",x:1923,y:2760,l:67,sw:1},
+  {n:"Jatizso",x:2412,y:3782,l:68,r:"The Fremennik Isles"},
+  {n:"Neitiznot",x:2309,y:3784,l:68,r:"The Fremennik Isles"},
+  {n:"Rainbow's End",x:2345,y:2271,l:69},
+  {n:"Prifddinas",x:2158,y:3326,l:70,r:"Song of the Elves",sw:1},
+  {n:"Sunbleak Island",x:2189,y:2328,l:72},
+  {n:"Ynysdail",x:2222,y:3466,l:73},
+  {n:"Waterbirth Island",x:2543,y:3767,l:74,r:"The Fremennik Trials"},
+  {n:"Piscatoris",x:2304,y:3691,l:75,r:"Swan Song"},
+  {n:"Lunar Isle",x:2152,y:3883,l:76,r:"Lunar Diplomacy"},
+  {n:"Buccaneers' Haven",x:2080,y:3692,l:76},
+  {n:"Drumstick Isle",x:2150,y:3531,l:79},
+  {n:"Weiss",x:2861,y:3973,l:80,r:"Making Friends with My Arm"},
+  {n:"Brittle Isle",x:1954,y:4057,l:81},
+  {n:"Grimstone",x:2928,y:4057,l:87},
+  {n:"Shipyard",x:2082,y:2724,l:1,sw:1,np:1},
+];
 const GEAR = JSON.parse(document.getElementById('geardata').textContent);
 const ICON_KEY = { GENERIC:'generic', SPYGLASS:'spyglass', CURRENT_DUCK:'current', DRINK_CRATE:'crate', MERMAID_GUIDE:'diving', WEATHER:'weather' };
 const data = tasks.filter(t => t[4] < 7000);
@@ -500,6 +574,8 @@ routeMode.addEventListener('change', render);
 // per-type show/hide (checked = show). All types start on.
 const typeOn = types.map(()=>true);
 const hideDone = document.getElementById('hideDone');
+const togPorts = document.getElementById('togPorts');
+const togShip = document.getElementById('togShip');
 const summary = document.getElementById('summary');
 
 const routeLayer = L.layerGroup().addTo(map);
@@ -678,6 +754,7 @@ function offsetPath(pts, dist){
 }
 
 const duckLayer = L.layerGroup().addTo(map);
+const dockLayer = L.layerGroup().addTo(map);   // ports / shipwright overlay (independent of the route)
 
 let visible = [];
 let routeOrder = new Map(), routeById = new Map();   // last computed route (seq ↔ task), for the Play walkthrough
@@ -700,6 +777,7 @@ function render(){
   routeLayer.clearLayers();
   markerLayer.clearLayers();
   duckLayer.clearLayers();
+  dockLayer.clearLayers();
 
   // single connected route over not-done tasks; duck legs (start→drift-end) are threaded in blue
   let legs = [], order = new Map(), isolated = new Set();
@@ -788,6 +866,21 @@ function render(){
     });
   }
 
+  // ports / shipwright reclaim points — reference overlays, independent of the route.
+  // Each pin shows the Sailing level to dock; pins above your level are dimmed.
+  if(togPorts.checked || togShip.checked){
+    for(const d of DOCKS){
+      const asSw = d.sw && togShip.checked;      // draw as a shipwright if it is one and that layer is on
+      const asPort = !d.np && togPorts.checked;  // draw as a dock if it's a mooring point and that layer is on
+      if(!asSw && !asPort) continue;             // a shipwright-port with only Ports on still shows (as a port)
+      const locked = d.l > L_;
+      const icon = L.divIcon({ className:'', iconSize:[0,0], iconAnchor:[0,0],
+        html:`<div class="dockpin ${asSw?'sw':'port'}${locked?' locked':''}">${asSw?'⚓ ':''}<b>${d.l}</b></div>` });
+      L.marker(toLatLng(d.x, d.y), {icon}).addTo(dockLayer)
+        .bindTooltip(`${d.n} · ${asSw?'shipwright (reclaim)':'dock'} · lvl ${d.l}${locked?' (locked)':''}${d.r?' · '+d.r:''}`, {direction:'top'});
+    }
+  }
+
   // xp estimate using each ocean's real avg xp/task (from wiki totals). Within-ocean it varies by task level, so this is approximate.
   // progress for the current view (reacts to type / ocean / unlock / level toggles)
   const doneInView = routable.length - visible.length;        // completed tasks that match the filters
@@ -831,7 +924,7 @@ document.querySelectorAll('.typechip').forEach(chip => chip.addEventListener('cl
 }));
 
 lvl.addEventListener('input', render);   // live as you type the level
-for(const el of [togPath, hideDone, ...document.querySelectorAll('.gear')]){
+for(const el of [togPath, hideDone, togPorts, togShip, ...document.querySelectorAll('.gear')]){
   el.addEventListener('change', render);   // checkboxes fire input+change per click — bind one to avoid a double render
 }
 function confirmBox(title, msg, okLabel){
