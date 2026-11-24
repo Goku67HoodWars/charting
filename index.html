@@ -116,6 +116,20 @@ body{display:flex; flex-direction:column}
 .ocrow .sw{width:10px; height:10px; border-radius:50%; flex:none}
 .ocrow .ocname{flex:1}
 .ocrow .occount{opacity:.7; font-size:12px}
+/* progress ledger panel rows (ocean -> seas); click a row to focus the map on it */
+.pgrow{display:flex; gap:6px; align-items:center; padding:2px 0; cursor:pointer; font-variant-numeric:tabular-nums}
+.pgrow:hover .pgname{color:var(--accent)}
+.pgrow.active{font-weight:700}
+.pgrow.active .pgname{color:var(--accent)}
+.pgrow .pgname{flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.pgrow .cnt{opacity:.7; font-size:12px; margin-left:4px; flex:none}
+.pgrow .car{width:12px; flex:none; text-align:center; opacity:.6; font-size:10px}
+.pgrow .sw{width:10px; height:10px; border-radius:50%; flex:none}
+.pgrow.searow{padding-left:18px; font-size:12px}
+.pgrow.full .pgname{opacity:.55}
+.pgrow.full .cnt{color:#3fa06a; opacity:.95}
+.uptitle .ptot{opacity:.75; font-weight:400; text-transform:none; letter-spacing:0}
+#progressPanel{max-height:min(58vh,440px); overflow-y:auto; overflow-x:hidden}
 #menuBtn{display:none}
 /* corner badge shown only when the live map-version lookup failed and we're on the saved fallback */
 #mapVerBadge{position:fixed; left:12px; bottom:12px; z-index:3500; display:flex; align-items:center; gap:7px;
@@ -324,6 +338,17 @@ const data = tasks.filter(t => t[4] < 7000);
 const MISC_OCEAN = oceans.findIndex(o => o[1] === 'Miscellaneous');
 if(MISC_OCEAN >= 0) for(const t of data){ if(t[7] < 0 || t[7] >= oceans.length) t[7] = MISC_OCEAN; }
 const DIVING = types.indexOf('MERMAID_GUIDE'), WEATHER = types.indexOf('WEATHER'), DUCK = types.indexOf('CURRENT_DUCK');
+// progress grouping: a sea's HOME ocean is its one non-Miscellaneous ocean. "Miscellaneous" is a task-TYPE
+// bucket (weather/mermaid/current land there regardless of place), so fold those back to the sea's real
+// ocean. No sea spans two real oceans, so this is unambiguous; a sea only ever seen as Misc stays Misc.
+const seaHome = {};
+for(const t of data){ if(t[7]!==MISC_OCEAN) seaHome[t[6]] = t[7]; }
+for(const t of data){ if(!(t[6] in seaHome)) seaHome[t[6]] = t[7]; }
+const oceanSeas = {};   // home ocean idx -> [sea idx, ...] (alpha by sea name)
+for(const si of new Set(data.map(t=>t[6]))){ const o=seaHome[si]; (oceanSeas[o] || (oceanSeas[o]=[])).push(si); }
+for(const o in oceanSeas) oceanSeas[o].sort((a,b)=> (seas[a]||'').localeCompare(seas[b]||''));
+let focusSea = null, focusOcean = null;   // progress-panel focus filter (null = off)
+const ocExpanded = new Set();             // oceans expanded in the progress panel
 let START = {x:3030, y:3197, name:'Port Sarim'};
 let startPick = false; // when armed, the next task click sets the route start
 // ocean palette (index matches data `oceans` order: ardent,sunset,unquiet,misc,western,shrouded,northern)
@@ -439,6 +464,20 @@ UNLOCK_CTL.onAdd = function(){
   return d;
 };
 UNLOCK_CTL.addTo(map);
+
+// Progress panel (stacks below Unlocked): a done-count ledger by ocean, each expandable to its seas.
+// Click a row to focus the map on just that ocean/sea; the header shows the grand total of all charts.
+let progressBox = null;
+const PROGRESS_CTL = L.control({position:'topright'});
+PROGRESS_CTL.onAdd = function(){
+  const d = L.DomUtil.create('div','unlockpanel');
+  d.id = 'progressPanel';
+  progressBox = d;
+  d.classList.add('collapsed');   // tertiary panel — starts collapsed, pops out on click
+  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+  return d;
+};
+PROGRESS_CTL.addTo(map);
 
 // ---- water-only pathfinding over a navigability grid (1 bit/cell, 1 = sailable water) ----
 const WM = JSON.parse(document.getElementById('watermask').textContent);
@@ -765,11 +804,14 @@ function render(){
   // OFF, so completing a task only dims its leg and never renumbers the rest (stable numbers).
   // With Hide done ON the route is built over `shown` (not-done only) instead, so the path skips
   // completed tasks entirely and the numbers cover just what's left to chart.
+  const focusOn = focusSea!=null || focusOcean!=null;   // progress-panel focus overrides the ocean toggles
   const routable = data.filter(t =>
     t[5] <= L_
     && typeOn[t[2]]
     && !gearBlocked(t[0])
-    && (t[7] < 0 || oceanOn[t[7]])
+    && (focusOn || t[7] < 0 || oceanOn[t[7]])
+    && (focusSea==null || t[6]===focusSea)
+    && (focusOcean==null || seaHome[t[6]]===focusOcean)
   );
   // `shown` = what's actually drawn (Hide done removes completed); `visible` = the not-done subset.
   const shown = hideDone.checked ? routable.filter(t => !done.has(t[0]) || t[0]===walkCurId) : routable;   // keep the focused walk task visible even if done
@@ -889,6 +931,7 @@ function render(){
     `<span class="stat"><b>${doneInView}</b> done</span>`
     + `<span class="stat"><b>${toGo}</b> to go</span>`;   // every routable task is on the route now, so "on route" always equalled "to go" — dropped the redundant stat
   renderOceanChips(L_);
+  renderProgress();
 }
 function getCSS(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#b5502f'; }
 
@@ -908,8 +951,41 @@ function renderOceanChips(L_){
   oceansBox.innerHTML = '<div class="uptitle">Oceans</div>' + rows;
   oceansBox.querySelector('.uptitle').addEventListener('click', ()=> oceansBox.classList.toggle('collapsed'));
   oceansBox.querySelectorAll('input.ocean').forEach(cb => cb.addEventListener('change', () => {
-    oceanOn[+cb.dataset.oi] = cb.checked; render();
+    oceanOn[+cb.dataset.oi] = cb.checked; focusSea=null; focusOcean=null; render();   // using the ocean toggles exits progress-panel focus
   }));
+}
+
+// Progress ledger: absolute done/total per ocean and sea (every chart type, independent of the view
+// filters), grand total in the header. Clicking a row sets focusOcean/focusSea to filter the MAP to it.
+function renderProgress(){
+  if(!progressBox) return;
+  const box = progressBox, seaCnt = {}, seaTot = {};
+  // count over the FULL task list (not map-filtered `data`): includes the lone off-map/instanced task
+  // (Charting Tutor, y>7000) so the per-ocean totals match the wiki's numbers exactly.
+  for(const t of tasks){ seaTot[t[6]]=(seaTot[t[6]]||0)+1; if(done.has(t[0])) seaCnt[t[6]]=(seaCnt[t[6]]||0)+1; }
+  const gDone = tasks.reduce((n,t)=> n+(done.has(t[0])?1:0), 0);
+  let html = `<div class="uptitle">Progress <span class="ptot">${gDone}/${tasks.length}</span></div>`
+    + `<div class="pgrow${focusSea==null&&focusOcean==null?' active':''}" data-all="1"><span class="pgname">All oceans</span></div>`;
+  oceans.forEach((o,oi)=>{
+    const sis = oceanSeas[oi]; if(!sis || !sis.length) return;
+    let oTot=0, oDone=0;
+    const seaRows = sis.map(si=>{
+      const tot=seaTot[si]||0, dn=seaCnt[si]||0; oTot+=tot; oDone+=dn;
+      return `<div class="pgrow searow${focusSea===si?' active':''}${dn===tot?' full':''}" data-sea="${si}"><span class="pgname">${seas[si]||'?'}</span><span class="cnt">${dn}/${tot}</span></div>`;
+    }).join('');
+    const exp = ocExpanded.has(oi);
+    html += `<div class="pgrow${focusOcean===oi?' active':''}${oDone===oTot?' full':''}" data-ocean="${oi}">`
+      + `<span class="car" data-exp="${oi}">${exp?'▾':'▸'}</span>`
+      + `<span class="sw" style="background:${OCEAN_COLORS[oi]}"></span>`
+      + `<span class="pgname">${o[1]}</span><span class="cnt">${oDone}/${oTot}</span></div>`
+      + (exp ? seaRows : '');
+  });
+  box.innerHTML = html;
+  box.querySelector('.uptitle').addEventListener('click', ()=> box.classList.toggle('collapsed'));
+  box.querySelectorAll('[data-exp]').forEach(c=> c.addEventListener('click', e=>{ e.stopPropagation(); const oi=+c.dataset.exp; ocExpanded.has(oi)?ocExpanded.delete(oi):ocExpanded.add(oi); renderProgress(); }));
+  box.querySelectorAll('[data-ocean]').forEach(r=> r.addEventListener('click', ()=>{ const oi=+r.dataset.ocean; focusOcean = focusOcean===oi?null:oi; focusSea=null; render(); }));
+  box.querySelectorAll('[data-sea]').forEach(r=> r.addEventListener('click', ()=>{ const si=+r.dataset.sea; focusSea = focusSea===si?null:si; focusOcean=null; render(); }));
+  box.querySelector('[data-all]').addEventListener('click', ()=>{ focusSea=null; focusOcean=null; render(); });
 }
 
 // type filter chips double as the legend: click a chip to show/hide that task type
