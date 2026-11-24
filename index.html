@@ -626,7 +626,7 @@ function entry(t){ return [t[3], t[4]]; }
 // ducks AND weather tasks are two-point "drifts": enter at start, leave at the second point
 function isDrift(t){ return (t[2]===DUCK || t[2]===WEATHER) && t[8]; }
 function driftKind(t){ return t[2]===WEATHER ? 'weather' : 'duck'; }
-function exitPt(t){ return isDrift(t) ? t[8] : [t[3], t[4]]; }
+function exitPt(t){ return (isDrift(t) && t[2]!==WEATHER) ? t[8] : [t[3], t[4]]; }  // weather is a round-trip, so you end back at the start; a duck drifts one-way to t[8]
 // distance from point to segment + projection parameter t along the segment (0=start,1=end)
 function segProj(px,py, ax,ay,bx,by){
   const dx=bx-ax, dy=by-ay, L2=dx*dx+dy*dy;
@@ -742,7 +742,10 @@ function buildRoute(pts, mode){
         let px=s[0], py=s[1];
         for(const c of cor){ order.set(c.q[0], ++seq); legs.push({kind:dk, ocean:oi, from:[px,py], to:c.qe, done:done.has(c.q[0]), toId:c.q[0]}); px=c.qe[0]; py=c.qe[1]; }  // each absorbed task's leg is kept and dimmed per its OWN done-state, not the drift's
         legs.push({kind:dk, ocean:oi, from:[px,py], to:en, done:tDone, toId:t[0]});
-        cx=en[0]; cy=en[1];
+        if(t[2]===WEATHER){                                   // weather = 3 steps: start → reading point (t[8]) → back to the start
+          legs.push({kind:dk, ocean:oi, from:[en[0],en[1]], to:[s[0],s[1]], done:tDone, toId:t[0]});
+          cx=s[0]; cy=s[1];
+        } else { cx=en[0]; cy=en[1]; }                        // a duck drifts one-way; the cursor ends at the drift exit
       } else {
         cx=e[0]; cy=e[1];
       }
@@ -1239,7 +1242,7 @@ function frameWalk(){   // centre + zoom the camera on the current task, fitting
   const capPt = p => { const dx=p[0]-cur[3], dy=p[1]-cur[4], d=Math.hypot(dx,dy); return (d<=CAP||!d) ? p : [cur[3]+dx/d*CAP, cur[4]+dy/d*CAP]; };
   const near = [ capPt(prev ? [prev[3],prev[4]] : [START.x,START.y]) ];
   if(next) near.push(capPt([next[3],next[4]]));
-  if(isDrift(cur)) near.push(capPt(exitPt(cur)));   // a drift task's glowed leg runs to its drift-exit — keep that in frame
+  if(isDrift(cur)) near.push(capPt(cur[8]));   // a drift task's glowed legs run out to its second point (t[8]) — keep that in frame
   const hx = Math.max(20, ...near.map(p=>Math.abs(p[0]-cur[3])));
   const hy = Math.max(20, ...near.map(p=>Math.abs(p[1]-cur[4])));
   // box is symmetric around the current task, so fitBounds keeps it centred while fitting the neighbours
