@@ -1,0 +1,7 @@
+/build/
+/.gradle/
+*.iml
+.idea/
+/bin/
+/.jdk11/
+jdk11.zip
